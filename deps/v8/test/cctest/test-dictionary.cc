@@ -25,19 +25,18 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/v8.h"
+#include "src/init/v8.h"
 #include "test/cctest/cctest.h"
 
-#include "src/api.h"
 #include "src/builtins/builtins-constructor.h"
 #include "src/debug/debug.h"
-#include "src/execution.h"
-#include "src/global-handles.h"
+#include "src/execution/execution.h"
+#include "src/handles/global-handles.h"
 #include "src/heap/factory.h"
 #include "src/heap/spaces.h"
-#include "src/macro-assembler.h"
-#include "src/objects-inl.h"
 #include "src/objects/hash-table-inl.h"
+#include "src/objects/objects-inl.h"
+#include "src/roots/roots.h"
 #include "test/cctest/heap/heap-utils.h"
 
 namespace v8 {
@@ -87,17 +86,17 @@ static void TestHashMap(Handle<HashMap> table) {
     CHECK_EQ(table->NumberOfElements(), i + 1);
     CHECK_NE(table->FindEntry(isolate, key), HashMap::kNotFound);
     CHECK_EQ(table->Lookup(key), *value);
-    CHECK(key->GetIdentityHash(isolate)->IsSmi());
+    CHECK(key->GetIdentityHash().IsSmi());
   }
 
   // Keys never added to the map which already have an identity hash
   // code should not be found.
   for (int i = 0; i < 100; i++) {
     Handle<JSReceiver> key = factory->NewJSArray(7);
-    CHECK(key->GetOrCreateIdentityHash(isolate)->IsSmi());
+    CHECK(key->GetOrCreateIdentityHash(isolate).IsSmi());
     CHECK_EQ(table->FindEntry(isolate, key), HashMap::kNotFound);
     CHECK_EQ(table->Lookup(key), roots.the_hole_value());
-    CHECK(key->GetIdentityHash(isolate)->IsSmi());
+    CHECK(key->GetIdentityHash().IsSmi());
   }
 
   // Keys that don't have an identity hash should not be found and also
@@ -105,7 +104,7 @@ static void TestHashMap(Handle<HashMap> table) {
   for (int i = 0; i < 100; i++) {
     Handle<JSReceiver> key = factory->NewJSArray(7);
     CHECK_EQ(table->Lookup(key), roots.the_hole_value());
-    Object* identity_hash = key->GetIdentityHash(isolate);
+    Object identity_hash = key->GetIdentityHash();
     CHECK_EQ(roots.undefined_value(), identity_hash);
   }
 }
@@ -158,16 +157,16 @@ static void TestHashSet(Handle<HashSet> table) {
     table = HashSet::Add(isolate, table, key);
     CHECK_EQ(table->NumberOfElements(), i + 2);
     CHECK(table->Has(isolate, key));
-    CHECK(key->GetIdentityHash(isolate)->IsSmi());
+    CHECK(key->GetIdentityHash().IsSmi());
   }
 
   // Keys never added to the map which already have an identity hash
   // code should not be found.
   for (int i = 0; i < 100; i++) {
     Handle<JSReceiver> key = factory->NewJSArray(7);
-    CHECK(key->GetOrCreateIdentityHash(isolate)->IsSmi());
+    CHECK(key->GetOrCreateIdentityHash(isolate).IsSmi());
     CHECK(!table->Has(isolate, key));
-    CHECK(key->GetIdentityHash(isolate)->IsSmi());
+    CHECK(key->GetIdentityHash().IsSmi());
   }
 
   // Keys that don't have an identity hash should not be found and also
@@ -175,7 +174,7 @@ static void TestHashSet(Handle<HashSet> table) {
   for (int i = 0; i < 100; i++) {
     Handle<JSReceiver> key = factory->NewJSArray(7);
     CHECK(!table->Has(isolate, key));
-    Object* identity_hash = key->GetIdentityHash(isolate);
+    Object identity_hash = key->GetIdentityHash();
     CHECK_EQ(ReadOnlyRoots(CcTest::heap()).undefined_value(), identity_hash);
   }
 }
@@ -189,13 +188,16 @@ TEST(HashSet) {
 
 class ObjectHashTableTest: public ObjectHashTable {
  public:
+  explicit ObjectHashTableTest(ObjectHashTable o) : ObjectHashTable(o) {}
+  ObjectHashTableTest* operator->() { return this; }
+
   void insert(int entry, int key, int value) {
     set(EntryToIndex(entry), Smi::FromInt(key));
     set(EntryToIndex(entry) + 1, Smi::FromInt(value));
   }
 
   int lookup(int key) {
-    Handle<Object> key_obj(Smi::FromInt(key), GetIsolate());
+    Handle<Object> key_obj(Smi::FromInt(key), CcTest::i_isolate());
     return Smi::ToInt(Lookup(key_obj));
   }
 
@@ -212,27 +214,27 @@ TEST(HashTableRehash) {
   // Test almost filled table.
   {
     Handle<ObjectHashTable> table = ObjectHashTable::New(isolate, 100);
-    ObjectHashTableTest* t = reinterpret_cast<ObjectHashTableTest*>(*table);
-    int capacity = t->capacity();
+    ObjectHashTableTest t(*table);
+    int capacity = t.capacity();
     for (int i = 0; i < capacity - 1; i++) {
-      t->insert(i, i * i, i);
+      t.insert(i, i * i, i);
     }
-    t->Rehash(isolate);
+    t.Rehash(ReadOnlyRoots(isolate));
     for (int i = 0; i < capacity - 1; i++) {
-      CHECK_EQ(i, t->lookup(i * i));
+      CHECK_EQ(i, t.lookup(i * i));
     }
   }
   // Test half-filled table.
   {
     Handle<ObjectHashTable> table = ObjectHashTable::New(isolate, 100);
-    ObjectHashTableTest* t = reinterpret_cast<ObjectHashTableTest*>(*table);
-    int capacity = t->capacity();
+    ObjectHashTableTest t(*table);
+    int capacity = t.capacity();
     for (int i = 0; i < capacity / 2; i++) {
-      t->insert(i, i * i, i);
+      t.insert(i, i * i, i);
     }
-    t->Rehash(isolate);
+    t.Rehash(ReadOnlyRoots(isolate));
     for (int i = 0; i < capacity / 2; i++) {
-      CHECK_EQ(i, t->lookup(i * i));
+      CHECK_EQ(i, t.lookup(i * i));
     }
   }
 }
@@ -283,7 +285,7 @@ static void TestHashMapDoesNotCauseGC(Handle<HashMap> table) {
   heap::SimulateFullSpace(CcTest::heap()->old_space());
 
   // Calling Lookup() should not cause GC ever.
-  CHECK(table->Lookup(key)->IsTheHole(isolate));
+  CHECK(table->Lookup(key).IsTheHole(isolate));
 
   // Calling Put() should request GC by returning a failure.
   int gc_count = isolate->heap()->gc_count();

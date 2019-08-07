@@ -50,25 +50,25 @@ const ciphers = crypto.getCiphers();
 
 const expectedWarnings = common.hasFipsCrypto ?
   [] : [
-    ['Use Cipheriv for counter mode of aes-192-gcm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-192-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-192-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-128-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-128-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-128-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-256-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-256-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-256-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-256-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-256-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-256-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-256-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-256-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-256-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-256-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-256-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-256-ccm', common.noWarnCode],
-    ['Use Cipheriv for counter mode of aes-256-ccm', common.noWarnCode]
+    ['Use Cipheriv for counter mode of aes-192-gcm'],
+    ['Use Cipheriv for counter mode of aes-192-ccm'],
+    ['Use Cipheriv for counter mode of aes-192-ccm'],
+    ['Use Cipheriv for counter mode of aes-128-ccm'],
+    ['Use Cipheriv for counter mode of aes-128-ccm'],
+    ['Use Cipheriv for counter mode of aes-128-ccm'],
+    ['Use Cipheriv for counter mode of aes-256-ccm'],
+    ['Use Cipheriv for counter mode of aes-256-ccm'],
+    ['Use Cipheriv for counter mode of aes-256-ccm'],
+    ['Use Cipheriv for counter mode of aes-256-ccm'],
+    ['Use Cipheriv for counter mode of aes-256-ccm'],
+    ['Use Cipheriv for counter mode of aes-256-ccm'],
+    ['Use Cipheriv for counter mode of aes-256-ccm'],
+    ['Use Cipheriv for counter mode of aes-256-ccm'],
+    ['Use Cipheriv for counter mode of aes-256-ccm'],
+    ['Use Cipheriv for counter mode of aes-256-ccm'],
+    ['Use Cipheriv for counter mode of aes-256-ccm'],
+    ['Use Cipheriv for counter mode of aes-256-ccm'],
+    ['Use Cipheriv for counter mode of aes-256-ccm']
   ];
 
 const expectedDeprecationWarnings = [
@@ -94,9 +94,10 @@ for (const test of TEST_CASES) {
 
   const isCCM = /^aes-(128|192|256)-ccm$/.test(test.algo);
   const isOCB = /^aes-(128|192|256)-ocb$/.test(test.algo);
+  const isChacha20Poly1305 = test.algo === 'chacha20-poly1305';
 
   let options;
-  if (isCCM || isOCB)
+  if (isCCM || isOCB || isChacha20Poly1305)
     options = { authTagLength: test.tag.length / 2 };
 
   const inputEncoding = test.plainIsHex ? 'hex' : 'ascii';
@@ -121,7 +122,7 @@ for (const test of TEST_CASES) {
     hex += encrypt.final('hex');
 
     const auth_tag = encrypt.getAuthTag();
-    // only test basic encryption run if output is marked as tampered.
+    // Only test basic encryption run if output is marked as tampered.
     if (!test.tampered) {
       assert.strictEqual(hex, test.ct);
       assert.strictEqual(auth_tag.toString('hex'), test.tag);
@@ -152,7 +153,7 @@ for (const test of TEST_CASES) {
         msg += decrypt.final(outputEncoding);
         assert.strictEqual(msg, test.plain);
       } else {
-        // assert that final throws if input data could not be verified!
+        // Assert that final throws if input data could not be verified!
         assert.throws(function() { decrypt.final('hex'); }, errMessages.auth);
       }
     }
@@ -169,7 +170,7 @@ for (const test of TEST_CASES) {
       let hex = encrypt.update(test.plain, 'ascii', 'hex');
       hex += encrypt.final('hex');
       const auth_tag = encrypt.getAuthTag();
-      // only test basic encryption run if output is marked as tampered.
+      // Only test basic encryption run if output is marked as tampered.
       if (!test.tampered) {
         assert.strictEqual(hex, test.ct);
         assert.strictEqual(auth_tag.toString('hex'), test.tag);
@@ -191,14 +192,14 @@ for (const test of TEST_CASES) {
         msg += decrypt.final('ascii');
         assert.strictEqual(msg, test.plain);
       } else {
-        // assert that final throws if input data could not be verified!
+        // Assert that final throws if input data could not be verified!
         assert.throws(function() { decrypt.final('ascii'); }, errMessages.auth);
       }
     }
   }
 
   {
-    // trying to get tag before inputting all data:
+    // Trying to get tag before inputting all data:
     const encrypt = crypto.createCipheriv(test.algo,
                                           Buffer.from(test.key, 'hex'),
                                           Buffer.from(test.iv, 'hex'),
@@ -208,7 +209,7 @@ for (const test of TEST_CASES) {
   }
 
   {
-    // trying to create cipher with incorrect IV length
+    // Trying to create cipher with incorrect IV length
     assert.throws(function() {
       crypto.createCipheriv(
         test.algo,
@@ -557,27 +558,109 @@ for (const test of TEST_CASES) {
 }
 
 // Test that the authentication tag can be set at any point before calling
-// final() in GCM mode.
+// final() in GCM or OCB mode.
 {
   const plain = Buffer.from('Hello world', 'utf8');
   const key = Buffer.from('0123456789abcdef', 'utf8');
   const iv = Buffer.from('0123456789ab', 'utf8');
 
-  const cipher = crypto.createCipheriv('aes-128-gcm', key, iv);
-  const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
-  const authTag = cipher.getAuthTag();
+  for (const mode of ['gcm', 'ocb']) {
+    for (const authTagLength of mode === 'gcm' ? [undefined, 8] : [8]) {
+      const cipher = crypto.createCipheriv(`aes-128-${mode}`, key, iv, {
+        authTagLength
+      });
+      const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
+      const authTag = cipher.getAuthTag();
 
-  for (const authTagBeforeUpdate of [true, false]) {
-    const decipher = crypto.createDecipheriv('aes-128-gcm', key, iv);
-    if (authTagBeforeUpdate) {
-      decipher.setAuthTag(authTag);
+      for (const authTagBeforeUpdate of [true, false]) {
+        const decipher = crypto.createDecipheriv(`aes-128-${mode}`, key, iv, {
+          authTagLength
+        });
+        if (authTagBeforeUpdate) {
+          decipher.setAuthTag(authTag);
+        }
+        const resultUpdate = decipher.update(ciphertext);
+        if (!authTagBeforeUpdate) {
+          decipher.setAuthTag(authTag);
+        }
+        const resultFinal = decipher.final();
+        const result = Buffer.concat([resultUpdate, resultFinal]);
+        assert(result.equals(plain));
+      }
     }
-    const resultUpdate = decipher.update(ciphertext);
-    if (!authTagBeforeUpdate) {
-      decipher.setAuthTag(authTag);
-    }
-    const resultFinal = decipher.final();
-    const result = Buffer.concat([resultUpdate, resultFinal]);
-    assert(result.equals(plain));
+  }
+}
+
+// Test that setAuthTag can only be called once.
+{
+  const plain = Buffer.from('Hello world', 'utf8');
+  const key = Buffer.from('0123456789abcdef', 'utf8');
+  const iv = Buffer.from('0123456789ab', 'utf8');
+  const opts = { authTagLength: 8 };
+
+  for (const mode of ['gcm', 'ccm', 'ocb']) {
+    const cipher = crypto.createCipheriv(`aes-128-${mode}`, key, iv, opts);
+    const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
+    const tag = cipher.getAuthTag();
+
+    const decipher = crypto.createDecipheriv(`aes-128-${mode}`, key, iv, opts);
+    decipher.setAuthTag(tag);
+    assert.throws(() => {
+      decipher.setAuthTag(tag);
+    }, errMessages.state);
+    // Decryption should still work.
+    const plaintext = Buffer.concat([
+      decipher.update(ciphertext),
+      decipher.final()
+    ]);
+    assert(plain.equals(plaintext));
+  }
+}
+
+
+// Test chacha20-poly1305 rejects invalid IV lengths of 13, 14, 15, and 16 (a
+// length of 17 or greater was already rejected).
+// - https://www.openssl.org/news/secadv/20190306.txt
+{
+  // Valid extracted from TEST_CASES, check that it detects IV tampering.
+  const valid = {
+    algo: 'chacha20-poly1305',
+    key: '808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f',
+    iv: '070000004041424344454647',
+    plain: '4c616469657320616e642047656e746c656d656e206f662074686520636c6173' +
+           '73206f66202739393a204966204920636f756c64206f6666657220796f75206f' +
+           '6e6c79206f6e652074697020666f7220746865206675747572652c2073756e73' +
+           '637265656e20776f756c642062652069742e',
+    plainIsHex: true,
+    aad: '50515253c0c1c2c3c4c5c6c7',
+    ct: 'd31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5' +
+        'a736ee62d63dbea45e8ca9671282fafb69da92728b1a71de0a9e06' +
+        '0b2905d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fa' +
+        'b324e4fad675945585808b4831d7bc3ff4def08e4b7a9de576d265' +
+        '86cec64b6116',
+    tag: '1ae10b594f09e26a7e902ecbd0600691',
+    tampered: false,
+  };
+
+  // Invalid IV lengths should be detected:
+  // - 12 and below are valid.
+  // - 13-16 are not detected as invalid by some OpenSSL versions.
+  check(13);
+  check(14);
+  check(15);
+  check(16);
+  // - 17 and above were always detected as invalid by OpenSSL.
+  check(17);
+
+  function check(ivLength) {
+    const prefix = ivLength - valid.iv.length / 2;
+    assert.throws(() => crypto.createCipheriv(
+      valid.algo,
+      Buffer.from(valid.key, 'hex'),
+      Buffer.from(H(prefix) + valid.iv, 'hex'),
+      { authTagLength: valid.tag.length / 2 }
+    ), errMessages.length, `iv length ${ivLength} was not rejected`);
+
+    function H(length) { return '00'.repeat(length); }
   }
 }

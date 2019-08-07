@@ -37,17 +37,16 @@ class TCPWrap : public ConnectionWrap<TCPWrap, uv_tcp_t> {
     SERVER
   };
 
-  static v8::Local<v8::Object> Instantiate(Environment* env,
-                                           AsyncWrap* parent,
-                                           SocketType type);
+  static v8::MaybeLocal<v8::Object> Instantiate(Environment* env,
+                                                AsyncWrap* parent,
+                                                SocketType type);
   static void Initialize(v8::Local<v8::Object> target,
                          v8::Local<v8::Value> unused,
-                         v8::Local<v8::Context> context);
+                         v8::Local<v8::Context> context,
+                         void* priv);
 
-  void MemoryInfo(MemoryTracker* tracker) const override {
-    tracker->TrackThis(this);
-  }
-
+  SET_NO_MEMORY_INFO()
+  SET_SELF_SIZE(TCPWrap)
   std::string MemoryInfoName() const override {
     switch (provider_type()) {
       case ProviderType::PROVIDER_TCPWRAP:
@@ -77,7 +76,15 @@ class TCPWrap : public ConnectionWrap<TCPWrap, uv_tcp_t> {
   static void Listen(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Connect(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Connect6(const v8::FunctionCallbackInfo<v8::Value>& args);
+  template <typename T>
+  static void Connect(const v8::FunctionCallbackInfo<v8::Value>& args,
+      std::function<int(const char* ip_address, T* addr)> uv_ip_addr);
   static void Open(const v8::FunctionCallbackInfo<v8::Value>& args);
+  template <typename T>
+  static void Bind(
+      const v8::FunctionCallbackInfo<v8::Value>& args,
+      int family,
+      std::function<int(const char* ip_address, int port, T* addr)> uv_ip_addr);
 
 #ifdef _WIN32
   static void SetSimultaneousAccepts(

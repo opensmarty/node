@@ -5,20 +5,21 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "src/codegen/machine-type.h"
+#include "src/codegen/optimized-compilation-info.h"
+#include "src/compiler/backend/instruction-selector.h"
 #include "src/compiler/graph.h"
-#include "src/compiler/instruction-selector.h"
 #include "src/compiler/linkage.h"
 #include "src/compiler/node.h"
 #include "src/compiler/operator.h"
 #include "src/compiler/pipeline.h"
 #include "src/compiler/raw-machine-assembler.h"
 #include "src/compiler/wasm-compiler.h"
-#include "src/machine-type.h"
-#include "src/objects-inl.h"
-#include "src/objects.h"
-#include "src/optimized-compilation-info.h"
-#include "src/simulator.h"
+#include "src/execution/simulator.h"
+#include "src/objects/objects-inl.h"
+#include "src/objects/objects.h"
 #include "src/wasm/wasm-engine.h"
+#include "src/wasm/wasm-features.h"
 #include "src/wasm/wasm-limits.h"
 #include "src/wasm/wasm-objects-inl.h"
 #include "src/wasm/wasm-objects.h"
@@ -82,21 +83,6 @@ MachineType RandomType(InputProvider* input) {
   return kTypes[input->NextInt8(kNumTypes)];
 }
 
-int num_registers(MachineType type) {
-  const RegisterConfiguration* config = RegisterConfiguration::Default();
-  switch (type.representation()) {
-    case MachineRepresentation::kWord32:
-    case MachineRepresentation::kWord64:
-      return config->num_allocatable_general_registers();
-    case MachineRepresentation::kFloat32:
-      return config->num_allocatable_float_registers();
-    case MachineRepresentation::kFloat64:
-      return config->num_allocatable_double_registers();
-    default:
-      UNREACHABLE();
-  }
-}
-
 int index(MachineType type) { return static_cast<int>(type.representation()); }
 
 Node* Constant(RawMachineAssembler& m, MachineType type, int value) {
@@ -148,19 +134,16 @@ CallDescriptor* CreateRandomCallDescriptor(Zone* zone, size_t return_count,
   return compiler::GetWasmCallDescriptor(zone, builder.Build());
 }
 
-std::unique_ptr<wasm::NativeModule> AllocateNativeModule(i::Isolate* isolate,
+std::shared_ptr<wasm::NativeModule> AllocateNativeModule(i::Isolate* isolate,
                                                          size_t code_size) {
   std::shared_ptr<wasm::WasmModule> module(new wasm::WasmModule);
   module->num_declared_functions = 1;
-  wasm::ModuleEnv env(
-      module.get(), wasm::UseTrapHandler::kNoTrapHandler,
-      wasm::RuntimeExceptionSupport::kNoRuntimeExceptionSupport);
 
   // We have to add the code object to a NativeModule, because the
   // WasmCallDescriptor assumes that code is on the native heap and not
   // within a code object.
-  return isolate->wasm_engine()->code_manager()->NewNativeModule(
-      isolate, code_size, false, std::move(module), env);
+  return isolate->wasm_engine()->NewNativeModule(
+      isolate, i::wasm::kAllWasmFeatures, code_size, false, std::move(module));
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
@@ -260,11 +243,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
                           AssemblerOptions::Default(i_isolate), callee.Export())
                           .ToHandleChecked();
 
-  std::unique_ptr<wasm::NativeModule> module =
+  std::shared_ptr<wasm::NativeModule> module =
       AllocateNativeModule(i_isolate, code->raw_instruction_size());
-  byte* code_start = module->AddCodeCopy(code, wasm::WasmCode::kFunction, 0)
-                         ->instructions()
-                         .start();
+  wasm::WasmCodeRefScope wasm_code_ref_scope;
+  byte* code_start = module->AddCodeForTesting(code)->instructions().begin();
   // Generate wrapper.
   int expect = 0;
 
@@ -306,6 +288,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           &wrapper_info, i_isolate, wrapper_desc, caller.graph(),
           AssemblerOptions::Default(i_isolate), caller.Export())
           .ToHandleChecked();
+
   auto fn = GeneratedCode<int32_t>::FromCode(*wrapper_code);
   int result = fn.Call();
 

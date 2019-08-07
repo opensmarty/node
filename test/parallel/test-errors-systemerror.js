@@ -6,7 +6,7 @@ const assert = require('assert');
 const { E, SystemError, codes } = require('internal/errors');
 
 assert.throws(
-  () => { throw new SystemError(); },
+  () => { new SystemError(); },
   {
     name: 'TypeError',
     message: 'Cannot read property \'match\' of undefined'
@@ -29,7 +29,7 @@ const { ERR_TEST } = codes;
     () => { throw new ERR_TEST(ctx); },
     {
       code: 'ERR_TEST',
-      name: 'SystemError [ERR_TEST]',
+      name: 'SystemError',
       message: 'custom message: syscall_test returned ETEST (code message)' +
                ' /str => /str2',
       info: ctx
@@ -49,7 +49,7 @@ const { ERR_TEST } = codes;
     () => { throw new ERR_TEST(ctx); },
     {
       code: 'ERR_TEST',
-      name: 'SystemError [ERR_TEST]',
+      name: 'SystemError',
       message: 'custom message: syscall_test returned ETEST (code message)' +
                ' /buf => /str2',
       info: ctx
@@ -69,7 +69,7 @@ const { ERR_TEST } = codes;
     () => { throw new ERR_TEST(ctx); },
     {
       code: 'ERR_TEST',
-      name: 'SystemError [ERR_TEST]',
+      name: 'SystemError',
       message: 'custom message: syscall_test returned ETEST (code message)' +
                ' /buf => /buf2',
       info: ctx
@@ -110,4 +110,26 @@ const { ERR_TEST } = codes;
   assert.strictEqual(err.syscall, 'test');
   assert.strictEqual(err.path, 'path');
   assert.strictEqual(err.dest, 'path');
+}
+
+{
+  const ctx = {
+    code: 'ERR_TEST',
+    message: 'Error occurred',
+    syscall: 'syscall_test'
+  };
+  assert.throws(
+    () => {
+      const err = new ERR_TEST(ctx);
+      err.name = 'Foobar';
+      throw err;
+    },
+    {
+      code: 'ERR_TEST',
+      name: 'Foobar',
+      message: 'custom message: syscall_test returned ERR_TEST ' +
+               '(Error occurred)',
+      info: ctx
+    }
+  );
 }

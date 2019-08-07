@@ -5,8 +5,6 @@ const fixtures = require('../common/fixtures');
 // Refs: https://github.com/nodejs/node/pull/2253
 if (common.isSunOS)
   common.skip('unreliable on SunOS');
-if (!common.isMainThread)
-  common.skip('process.chdir is not available in Workers');
 
 const assert = require('assert');
 const childProcess = require('child_process');
@@ -27,14 +25,14 @@ const fixtureC = fixtures.path('printC.js');
 const fixtureD = fixtures.path('define-global.js');
 const fixtureThrows = fixtures.path('throws_error4.js');
 
-// test preloading a single module works
+// Test preloading a single module works
 childProcess.exec(`"${nodeBinary}" ${preloadOption([fixtureA])} "${fixtureB}"`,
                   function(err, stdout, stderr) {
                     assert.ifError(err);
                     assert.strictEqual(stdout, 'A\nB\n');
                   });
 
-// test preloading multiple modules works
+// Test preloading multiple modules works
 childProcess.exec(
   `"${nodeBinary}" ${preloadOption([fixtureA, fixtureB])} "${fixtureC}"`,
   function(err, stdout, stderr) {
@@ -43,7 +41,7 @@ childProcess.exec(
   }
 );
 
-// test that preloading a throwing module aborts
+// Test that preloading a throwing module aborts
 childProcess.exec(
   `"${nodeBinary}" ${preloadOption([fixtureA, fixtureThrows])} "${fixtureB}"`,
   function(err, stdout, stderr) {
@@ -55,7 +53,7 @@ childProcess.exec(
   }
 );
 
-// test that preload can be used with --eval
+// Test that preload can be used with --eval
 childProcess.exec(
   `"${nodeBinary}" ${preloadOption([fixtureA])}-e "console.log('hello');"`,
   function(err, stdout, stderr) {
@@ -64,7 +62,7 @@ childProcess.exec(
   }
 );
 
-// test that preload can be used with stdin
+// Test that preload can be used with stdin
 const stdinProc = childProcess.spawn(
   nodeBinary,
   ['--require', fixtureA],
@@ -80,7 +78,7 @@ stdinProc.on('close', function(code) {
   assert.strictEqual(stdinStdout, 'A\nhello\n');
 });
 
-// test that preload can be used with repl
+// Test that preload can be used with repl
 const replProc = childProcess.spawn(
   nodeBinary,
   ['-i', '--require', fixtureA],
@@ -88,7 +86,7 @@ const replProc = childProcess.spawn(
 );
 replProc.stdin.end('.exit\n');
 let replStdout = '';
-replProc.stdout.on('data', function(d) {
+replProc.stdout.on('data', (d) => {
   replStdout += d;
 });
 replProc.on('close', function(code) {
@@ -96,11 +94,12 @@ replProc.on('close', function(code) {
   const output = [
     'A',
     '> '
-  ].join('\n');
-  assert.strictEqual(replStdout, output);
+  ];
+  assert.ok(replStdout.startsWith(output[0]));
+  assert.ok(replStdout.endsWith(output[1]));
 });
 
-// test that preload placement at other points in the cmdline
+// Test that preload placement at other points in the cmdline
 // also test that duplicated preload only gets loaded once
 childProcess.exec(
   `"${nodeBinary}" ${preloadOption([fixtureA])}-e "console.log('hello');" ${
@@ -111,12 +110,12 @@ childProcess.exec(
   }
 );
 
-// test that preload works with -i
+// Test that preload works with -i
 const interactive = childProcess.exec(
   `"${nodeBinary}" ${preloadOption([fixtureD])}-i`,
   common.mustCall(function(err, stdout, stderr) {
     assert.ifError(err);
-    assert.strictEqual(stdout, "> 'test'\n> ");
+    assert.ok(stdout.endsWith("> 'test'\n> "));
   })
 );
 
@@ -132,10 +131,10 @@ childProcess.exec(
   }
 );
 
-// test that preloading with a relative path works
-process.chdir(fixtures.fixturesDir);
+// Test that preloading with a relative path works
 childProcess.exec(
   `"${nodeBinary}" ${preloadOption(['./printA.js'])} "${fixtureB}"`,
+  { cwd: fixtures.fixturesDir },
   common.mustCall(function(err, stdout, stderr) {
     assert.ifError(err);
     assert.strictEqual(stdout, 'A\nB\n');
@@ -145,6 +144,7 @@ if (common.isWindows) {
   // https://github.com/nodejs/node/issues/21918
   childProcess.exec(
     `"${nodeBinary}" ${preloadOption(['.\\printA.js'])} "${fixtureB}"`,
+    { cwd: fixtures.fixturesDir },
     common.mustCall(function(err, stdout, stderr) {
       assert.ifError(err);
       assert.strictEqual(stdout, 'A\nB\n');
@@ -153,10 +153,10 @@ if (common.isWindows) {
 }
 
 // https://github.com/nodejs/node/issues/1691
-process.chdir(fixtures.fixturesDir);
 childProcess.exec(
-  `"${nodeBinary}" --expose_natives_as=v8natives --require ` +
+  `"${nodeBinary}" --require ` +
      `"${fixtures.path('cluster-preload.js')}" cluster-preload-test.js`,
+  { cwd: fixtures.fixturesDir },
   function(err, stdout, stderr) {
     assert.ifError(err);
     assert.ok(/worker terminated with code 43/.test(stdout));

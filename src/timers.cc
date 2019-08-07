@@ -1,6 +1,8 @@
-#include "node_internals.h"
+#include "env-inl.h"
+#include "util-inl.h"
+#include "v8.h"
 
-#include <stdint.h>
+#include <cstdint>
 
 namespace node {
 namespace {
@@ -43,7 +45,8 @@ void ToggleImmediateRef(const FunctionCallbackInfo<Value>& args) {
 
 void Initialize(Local<Object> target,
                        Local<Value> unused,
-                       Local<Context> context) {
+                       Local<Context> context,
+                       void* priv) {
   Environment* env = Environment::GetCurrent(context);
 
   env->SetMethod(target, "getLibuvNow", GetLibuvNow);
@@ -54,7 +57,7 @@ void Initialize(Local<Object> target,
 
   target->Set(env->context(),
               FIXED_ONE_BYTE_STRING(env->isolate(), "immediateInfo"),
-              env->immediate_info()->fields().GetJSArray()).FromJust();
+              env->immediate_info()->fields().GetJSArray()).Check();
 }
 
 

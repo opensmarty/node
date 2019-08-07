@@ -5,7 +5,7 @@
 
 import os.path
 import sys
-import optparse
+import argparse
 import collections
 import functools
 import re
@@ -16,6 +16,13 @@ except ImportError:
     import simplejson as json
 
 import pdl
+
+try:
+    unicode
+except NameError:
+    # Define unicode for Py3
+    def unicode(s, *_):
+        return s
 
 # Path handling for libraries and templates
 # Paths have to be normalized because Jinja uses the exact template path to
@@ -33,14 +40,14 @@ def read_config():
         def json_object_hook(object_dict):
             items = [(k, os.path.join(config_base, v) if k == "path" else v) for (k, v) in object_dict.items()]
             items = [(k, os.path.join(output_base, v) if k == "output" else v) for (k, v) in items]
-            keys, values = zip(*items)
+            keys, values = list(zip(*items))
             return collections.namedtuple('X', keys)(*values)
         return json.loads(data, object_hook=json_object_hook)
 
     def init_defaults(config_tuple, path, defaults):
         keys = list(config_tuple._fields)  # pylint: disable=E1101
         values = [getattr(config_tuple, k) for k in keys]
-        for i in xrange(len(keys)):
+        for i in range(len(keys)):
             if hasattr(values[i], "_fields"):
                 values[i] = init_defaults(values[i], path + "." + keys[i], defaults)
         for optional in defaults:
@@ -53,28 +60,17 @@ def read_config():
         return collections.namedtuple('X', keys)(*values)
 
     try:
-        cmdline_parser = optparse.OptionParser()
-        cmdline_parser.add_option("--output_base")
-        cmdline_parser.add_option("--jinja_dir")
-        cmdline_parser.add_option("--config")
-        cmdline_parser.add_option("--config_value", action="append", type="string")
-        arg_options, _ = cmdline_parser.parse_args()
+        cmdline_parser = argparse.ArgumentParser()
+        cmdline_parser.add_argument("--output_base", type=unicode, required=True)
+        cmdline_parser.add_argument("--jinja_dir", type=unicode, required=True)
+        cmdline_parser.add_argument("--config", type=unicode, required=True)
+        cmdline_parser.add_argument("--config_value", default=[], action="append")
+        arg_options = cmdline_parser.parse_args()
         jinja_dir = arg_options.jinja_dir
-        if not jinja_dir:
-            raise Exception("jinja directory must be specified")
-        jinja_dir = jinja_dir.decode('utf8')
         output_base = arg_options.output_base
-        if not output_base:
-            raise Exception("Base output directory must be specified")
-        output_base = output_base.decode('utf8')
         config_file = arg_options.config
-        if not config_file:
-            raise Exception("Config file name must be specified")
-        config_file = config_file.decode('utf8')
         config_base = os.path.dirname(config_file)
         config_values = arg_options.config_value
-        if not config_values:
-            config_values = []
     except Exception:
         # Work with python 2 and 3 http://docs.python.org/py3k/howto/pyporting.html
         exc = sys.exc_info()[1]
@@ -134,7 +130,7 @@ def dash_to_camelcase(word):
 
 
 def to_snake_case(name):
-    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name, sys.maxint).lower()
+    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name, sys.maxsize).lower()
 
 
 def to_method_case(config, name):
@@ -263,6 +259,21 @@ def create_string_type_definition():
         "raw_type": "String",
         "raw_pass_type": "const String&",
         "raw_return_type": "String",
+    }
+
+
+def create_binary_type_definition():
+    # pylint: disable=W0622
+    return {
+        "return_type": "Binary",
+        "pass_type": "const Binary&",
+        "to_pass_type": "%s",
+        "to_raw_type": "%s",
+        "to_rvalue": "%s",
+        "type": "Binary",
+        "raw_type": "Binary",
+        "raw_pass_type": "const Binary&",
+        "raw_return_type": "Binary",
     }
 
 
@@ -443,8 +454,10 @@ class Protocol(object):
         self.type_definitions["boolean"] = create_primitive_type_definition("boolean")
         self.type_definitions["object"] = create_object_type_definition()
         self.type_definitions["any"] = create_any_type_definition()
+        self.type_definitions["binary"] = create_binary_type_definition()
         for domain in self.json_api["domains"]:
             self.type_definitions[domain["domain"] + ".string"] = create_string_type_definition()
+            self.type_definitions[domain["domain"] + ".binary"] = create_binary_type_definition()
             if not ("types" in domain):
                 continue
             for type in domain["types"]:
@@ -457,6 +470,8 @@ class Protocol(object):
                     self.type_definitions[type_name] = self.resolve_type(type)
                 elif type["type"] == domain["domain"] + ".string":
                     self.type_definitions[type_name] = create_string_type_definition()
+                elif type["type"] == domain["domain"] + ".binary":
+                    self.type_definitions[type_name] = create_binary_type_definition()
                 else:
                     self.type_definitions[type_name] = create_primitive_type_definition(type["type"])
 
@@ -604,7 +619,7 @@ def main():
         lib_templates_dir = os.path.join(module_path, "lib")
         # Note these should be sorted in the right order.
         # TODO(dgozman): sort them programmatically based on commented includes.
-        lib_h_templates = [
+        protocol_h_templates = [
             "ErrorSupport_h.template",
             "Values_h.template",
             "Object_h.template",
@@ -613,21 +628,31 @@ def main():
             "Array_h.template",
             "DispatcherBase_h.template",
             "Parser_h.template",
+            "encoding_h.template",
         ]
 
-        lib_cpp_templates = [
+        protocol_cpp_templates = [
             "Protocol_cpp.template",
             "ErrorSupport_cpp.template",
             "Values_cpp.template",
             "Object_cpp.template",
             "DispatcherBase_cpp.template",
             "Parser_cpp.template",
+            "encoding_cpp.template",
         ]
 
         forward_h_templates = [
             "Forward_h.template",
             "Allocator_h.template",
             "FrontendChannel_h.template",
+        ]
+
+        base_string_adapter_h_templates = [
+            "base_string_adapter_h.template",
+        ]
+
+        base_string_adapter_cc_templates = [
+            "base_string_adapter_cc.template",
         ]
 
         def generate_lib_file(file_name, template_files):
@@ -639,20 +664,22 @@ def main():
             outputs[file_name] = "\n\n".join(parts)
 
         generate_lib_file(os.path.join(config.lib.output, to_file_name(config, "Forward.h")), forward_h_templates)
-        generate_lib_file(os.path.join(config.lib.output, to_file_name(config, "Protocol.h")), lib_h_templates)
-        generate_lib_file(os.path.join(config.lib.output, to_file_name(config, "Protocol.cpp")), lib_cpp_templates)
+        generate_lib_file(os.path.join(config.lib.output, to_file_name(config, "Protocol.h")), protocol_h_templates)
+        generate_lib_file(os.path.join(config.lib.output, to_file_name(config, "Protocol.cpp")), protocol_cpp_templates)
+        generate_lib_file(os.path.join(config.lib.output, to_file_name(config, "base_string_adapter.h")), base_string_adapter_h_templates)
+        generate_lib_file(os.path.join(config.lib.output, to_file_name(config, "base_string_adapter.cc")), base_string_adapter_cc_templates)
 
     # Make gyp / make generatos happy, otherwise make rebuilds world.
     inputs_ts = max(map(os.path.getmtime, inputs))
     up_to_date = True
-    for output_file in outputs.iterkeys():
+    for output_file in outputs.keys():
         if not os.path.exists(output_file) or os.path.getmtime(output_file) < inputs_ts:
             up_to_date = False
             break
     if up_to_date:
         sys.exit()
 
-    for file_name, content in outputs.iteritems():
+    for file_name, content in outputs.items():
         out_file = open(file_name, "w")
         out_file.write(content)
         out_file.close()

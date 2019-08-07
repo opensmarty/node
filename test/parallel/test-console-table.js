@@ -32,7 +32,7 @@ test(undefined, 'undefined\n');
 test(false, 'false\n');
 test('hi', 'hi\n');
 test(Symbol(), 'Symbol()\n');
-test(function() {}, '[Function]\n');
+test(function() {}, '[Function (anonymous)]\n');
 
 test([1, 2, 3], `
 ┌─────────┬────────┐
@@ -52,6 +52,15 @@ test([Symbol(), 5, [10]], `
 │    1    │    │    5     │
 │    2    │ 10 │          │
 └─────────┴────┴──────────┘
+`);
+
+test([null, 5], `
+┌─────────┬────────┐
+│ (index) │ Values │
+├─────────┼────────┤
+│    0    │  null  │
+│    1    │   5    │
+└─────────┴────────┘
 `);
 
 test([undefined, 5], `
@@ -159,6 +168,14 @@ test({ a: { a: 1, b: 2, c: 3 } }, `
 └─────────┴───┴───┴───┘
 `);
 
+test({ a: { a: { a: 1, b: 2, c: 3 } } }, `
+┌─────────┬──────────┐
+│ (index) │    a     │
+├─────────┼──────────┤
+│    a    │ [Object] │
+└─────────┴──────────┘
+`);
+
 test({ a: [1, 2] }, `
 ┌─────────┬───┬───┐
 │ (index) │ 0 │ 1 │
@@ -227,3 +244,17 @@ test([{ a: 1, b: 'Y' }, { a: 'Z', b: 2 }], `
 │    1    │ 'Z' │  2  │
 └─────────┴─────┴─────┘
 `);
+
+{
+  const line = '─'.repeat(79);
+  const header = `${' '.repeat(37)}name${' '.repeat(40)}`;
+  const name = 'very long long long long long long long long long long long ' +
+               'long long long long';
+  test([{ name }], `
+┌─────────┬──${line}──┐
+│ (index) │  ${header}│
+├─────────┼──${line}──┤
+│    0    │ '${name}' │
+└─────────┴──${line}──┘
+`);
+}

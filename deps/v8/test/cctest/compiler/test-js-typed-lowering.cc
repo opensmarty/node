@@ -10,9 +10,9 @@
 #include "src/compiler/operator-properties.h"
 #include "src/compiler/simplified-operator.h"
 #include "src/compiler/typer.h"
+#include "src/execution/isolate.h"
 #include "src/heap/factory-inl.h"
-#include "src/isolate.h"
-#include "src/objects.h"
+#include "src/objects/objects.h"
 #include "test/cctest/cctest.h"
 
 namespace v8 {
@@ -23,7 +23,8 @@ class JSTypedLoweringTester : public HandleAndZoneScope {
  public:
   explicit JSTypedLoweringTester(int num_parameters = 0)
       : isolate(main_isolate()),
-        js_heap_broker(isolate),
+        canonical(isolate),
+        js_heap_broker(isolate, main_zone()),
         binop(nullptr),
         unop(nullptr),
         javascript(main_zone()),
@@ -31,7 +32,7 @@ class JSTypedLoweringTester : public HandleAndZoneScope {
         simplified(main_zone()),
         common(main_zone()),
         graph(main_zone()),
-        typer(main_isolate(), &js_heap_broker, Typer::kNoFlags, &graph),
+        typer(&js_heap_broker, Typer::kNoFlags, &graph),
         context_node(nullptr) {
     graph.SetStart(graph.NewNode(common.Start(num_parameters)));
     graph.SetEnd(graph.NewNode(common.End(1), graph.start()));
@@ -39,6 +40,7 @@ class JSTypedLoweringTester : public HandleAndZoneScope {
   }
 
   Isolate* isolate;
+  CanonicalHandleScope canonical;
   JSHeapBroker js_heap_broker;
   const Operator* binop;
   const Operator* unop;
@@ -605,7 +607,8 @@ static void CheckIsConvertedToNumber(Node* val, Node* converted) {
     CHECK_EQ(val, converted);
   } else {
     if (converted->opcode() == IrOpcode::kNumberConstant) return;
-    CHECK_EQ(IrOpcode::kJSToNumber, converted->opcode());
+    CHECK(IrOpcode::kJSToNumber == converted->opcode() ||
+          IrOpcode::kJSToNumberConvertBigInt == converted->opcode());
     CHECK_EQ(val, converted->InputAt(0));
   }
 }

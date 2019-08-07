@@ -12,7 +12,7 @@ const test = require('tap').test
 
 const Dir = Tacks.Dir
 const File = Tacks.File
-const testDir = path.join(__dirname, 'ci')
+const testDir = common.pkg
 
 const EXEC_OPTS = { cwd: testDir }
 
@@ -44,25 +44,27 @@ test('setup', () => {
   const fixture = new Tacks(Dir({
     'package.json': File(PKG)
   }))
-  fixture.create(testDir)
-  return mr({port: common.port})
+  return rimraf(testDir).then(() => {
+    fixture.create(testDir)
+    return mr({port: common.port})
+  })
     .then((server) => {
       SERVER = server
       return common.npm([
         'install',
         '--registry', common.registry
       ], EXEC_OPTS)
-        .then(() => fs.readFileAsync(
-          path.join(testDir, 'package-lock.json'),
-          'utf8')
-        )
-        .then((lock) => {
-          RAW_LOCKFILE = lock
-        })
-        .then(() => common.npm(['ls', '--json'], EXEC_OPTS))
-        .then((ret) => {
-          TREE = scrubFrom(JSON.parse(ret[1]))
-        })
+    })
+    .then(() => fs.readFileAsync(
+      path.join(testDir, 'package-lock.json'),
+      'utf8')
+    )
+    .then((lock) => {
+      RAW_LOCKFILE = lock
+    })
+    .then(() => common.npm(['ls', '--json'], EXEC_OPTS))
+    .then((ret) => {
+      TREE = scrubFrom(JSON.parse(ret[1]))
     })
 })
 
@@ -83,9 +85,9 @@ test('basic installation', (t) => {
       const stdout = ret[1]
       const stderr = ret[2]
       t.equal(code, 0, 'command completed without error')
-      t.equal(stdout.trim(), '', 'no output on stdout')
+      t.equal(stderr.trim(), '', 'no output on stderr')
       t.match(
-        stderr.trim(),
+        stdout.trim(),
         /^added 6 packages in \d+(?:\.\d+)?s$/,
         'no warnings on stderr, and final output has right number of packages'
       )
@@ -150,9 +152,9 @@ test('supports npm-shrinkwrap.json as well', (t) => {
       const stdout = ret[1]
       const stderr = ret[2]
       t.equal(code, 0, 'command completed without error')
-      t.equal(stdout.trim(), '', 'no output on stdout')
+      t.equal(stderr.trim(), '', 'no output on stderr')
       t.match(
-        stderr.trim(),
+        stdout.trim(),
         /^added 6 packages in \d+(?:\.\d+)?s$/,
         'no warnings on stderr, and final output has right number of packages'
       )
@@ -197,10 +199,8 @@ test('removes existing node_modules/ before installing', (t) => {
     ], EXEC_OPTS))
     .then((ret) => {
       const code = ret[0]
-      const stdout = ret[1]
       const stderr = ret[2]
       t.equal(code, 0, 'command completed without error')
-      t.equal(stdout.trim(), '', 'no output on stdout')
       t.match(
         stderr.trim(),
         /^npm.*WARN.*removing existing node_modules/,

@@ -27,11 +27,9 @@
 #include "base_object.h"
 #include "v8.h"
 
-#include <stdint.h>
+#include <cstdint>
 
 namespace node {
-
-#define NODE_ASYNC_ID_OFFSET 0xA1C
 
 #define NODE_ASYNC_NON_CRYPTO_PROVIDER_TYPES(V)                               \
   V(NONE)                                                                     \
@@ -43,11 +41,13 @@ namespace node {
   V(FSREQPROMISE)                                                             \
   V(GETADDRINFOREQWRAP)                                                       \
   V(GETNAMEINFOREQWRAP)                                                       \
+  V(HEAPSNAPSHOT)                                                             \
   V(HTTP2SESSION)                                                             \
   V(HTTP2STREAM)                                                              \
   V(HTTP2PING)                                                                \
   V(HTTP2SETTINGS)                                                            \
-  V(HTTPPARSER)                                                               \
+  V(HTTPINCOMINGMESSAGE)                                                      \
+  V(HTTPCLIENTREQUEST)                                                        \
   V(JSSTREAM)                                                                 \
   V(MESSAGEPORT)                                                              \
   V(PIPECONNECTWRAP)                                                          \
@@ -73,6 +73,7 @@ namespace node {
 #if HAVE_OPENSSL
 #define NODE_ASYNC_CRYPTO_PROVIDER_TYPES(V)                                   \
   V(PBKDF2REQUEST)                                                            \
+  V(KEYPAIRGENREQUEST)                                                        \
   V(RANDOMBYTESREQUEST)                                                       \
   V(SCRYPTREQUEST)                                                            \
   V(TLSWRAP)
@@ -105,30 +106,34 @@ class AsyncWrap : public BaseObject {
     PROVIDERS_LENGTH,
   };
 
-  enum Flags {
-    kFlagNone = 0x0,
-    kFlagHasReset = 0x1
-  };
-
   AsyncWrap(Environment* env,
             v8::Local<v8::Object> object,
             ProviderType provider,
-            double execution_async_id = -1);
+            double execution_async_id = kInvalidAsyncId);
 
-  virtual ~AsyncWrap();
+  // This constructor creates a reusable instance where user is responsible
+  // to call set_provider_type() and AsyncReset() before use.
+  AsyncWrap(Environment* env, v8::Local<v8::Object> object);
 
-  static void AddWrapMethods(Environment* env,
-                             v8::Local<v8::FunctionTemplate> constructor,
-                             int flags = kFlagNone);
+  ~AsyncWrap() override;
+
+  AsyncWrap() = delete;
+
+  static constexpr double kInvalidAsyncId = -1;
+
+  static v8::Local<v8::FunctionTemplate> GetConstructorTemplate(
+      Environment* env);
 
   static void Initialize(v8::Local<v8::Object> target,
                          v8::Local<v8::Value> unused,
-                         v8::Local<v8::Context> context);
+                         v8::Local<v8::Context> context,
+                         void* priv);
 
   static void GetAsyncId(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void PushAsyncIds(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void PopAsyncIds(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void AsyncReset(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void GetProviderType(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void QueueDestroyAsyncId(
     const v8::FunctionCallbackInfo<v8::Value>& args);
 
@@ -143,18 +148,27 @@ class AsyncWrap : public BaseObject {
   static void EmitAfter(Environment* env, double async_id);
   static void EmitPromiseResolve(Environment* env, double async_id);
 
+  void EmitDestroy();
+
   void EmitTraceEventBefore();
   static void EmitTraceEventAfter(ProviderType type, double async_id);
   void EmitTraceEventDestroy();
 
+  static void DestroyAsyncIdsCallback(Environment* env);
 
   inline ProviderType provider_type() const;
+  inline ProviderType set_provider_type(ProviderType provider);
 
   inline double get_async_id() const;
 
   inline double get_trigger_async_id() const;
 
-  void AsyncReset(double execution_async_id = -1, bool silent = false);
+  void AsyncReset(v8::Local<v8::Object> resource,
+                  double execution_async_id = kInvalidAsyncId,
+                  bool silent = false);
+
+  void AsyncReset(double execution_async_id = kInvalidAsyncId,
+                  bool silent = false);
 
   // Only call these within a valid HandleScope.
   v8::MaybeLocal<v8::Value> MakeCallback(const v8::Local<v8::Function> cb,
@@ -174,7 +188,7 @@ class AsyncWrap : public BaseObject {
       v8::Local<v8::Value>* argv);
 
   virtual std::string diagnostic_name() const;
-  virtual std::string MemoryInfoName() const;
+  std::string MemoryInfoName() const override;
 
   static void WeakCallback(const v8::WeakCallbackInfo<DestroyParam> &info);
 
@@ -196,6 +210,8 @@ class AsyncWrap : public BaseObject {
     AsyncWrap* wrap_ = nullptr;
   };
 
+  bool IsDoneInitializing() const override;
+
  private:
   friend class PromiseWrap;
 
@@ -204,10 +220,10 @@ class AsyncWrap : public BaseObject {
             ProviderType provider,
             double execution_async_id,
             bool silent);
-  inline AsyncWrap();
-  const ProviderType provider_type_;
+  ProviderType provider_type_ = PROVIDER_NONE;
+  bool init_hook_ran_ = false;
   // Because the values may be Reset(), cannot be made const.
-  double async_id_;
+  double async_id_ = kInvalidAsyncId;
   double trigger_async_id_;
 };
 

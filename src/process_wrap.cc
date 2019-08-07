@@ -20,14 +20,12 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "env-inl.h"
-#include "handle_wrap.h"
-#include "node_internals.h"
-#include "node_wrap.h"
 #include "stream_base-inl.h"
+#include "stream_wrap.h"
 #include "util-inl.h"
 
-#include <string.h>
-#include <stdlib.h>
+#include <cstring>
+#include <cstdlib>
 
 namespace node {
 
@@ -50,7 +48,8 @@ class ProcessWrap : public HandleWrap {
  public:
   static void Initialize(Local<Object> target,
                          Local<Value> unused,
-                         Local<Context> context) {
+                         Local<Context> context,
+                         void* priv) {
     Environment* env = Environment::GetCurrent(context);
     Local<FunctionTemplate> constructor = env->NewFunctionTemplate(New);
     constructor->InstanceTemplate()->SetInternalFieldCount(1);
@@ -58,20 +57,19 @@ class ProcessWrap : public HandleWrap {
         FIXED_ONE_BYTE_STRING(env->isolate(), "Process");
     constructor->SetClassName(processString);
 
-    AsyncWrap::AddWrapMethods(env, constructor);
-    HandleWrap::AddWrapMethods(env, constructor);
+    constructor->Inherit(HandleWrap::GetConstructorTemplate(env));
 
     env->SetProtoMethod(constructor, "spawn", Spawn);
     env->SetProtoMethod(constructor, "kill", Kill);
 
-    target->Set(processString, constructor->GetFunction());
+    target->Set(env->context(),
+                processString,
+                constructor->GetFunction(context).ToLocalChecked()).Check();
   }
 
-  void MemoryInfo(MemoryTracker* tracker) const override {
-    tracker->TrackThis(this);
-  }
-
-  ADD_MEMORY_INFO_NAME(ProcessWrap)
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(ProcessWrap)
+  SET_SELF_SIZE(ProcessWrap)
 
  private:
   static void New(const FunctionCallbackInfo<Value>& args) {
@@ -89,6 +87,17 @@ class ProcessWrap : public HandleWrap {
                    reinterpret_cast<uv_handle_t*>(&process_),
                    AsyncWrap::PROVIDER_PROCESSWRAP) {
     MarkAsUninitialized();
+  }
+
+  static uv_stream_t* StreamForWrap(Environment* env, Local<Object> stdio) {
+    Local<String> handle_key = env->handle_string();
+    // This property has always been set by JS land if we are in this code path.
+    Local<Object> handle =
+        stdio->Get(env->context(), handle_key).ToLocalChecked().As<Object>();
+
+    uv_stream_t* stream = LibuvStreamWrap::From(env, handle)->stream();
+    CHECK_NOT_NULL(stream);
+    return stream;
   }
 
   static void ParseStdioOptions(Environment* env,
@@ -114,22 +123,10 @@ class ProcessWrap : public HandleWrap {
       } else if (type->StrictEquals(env->pipe_string())) {
         options->stdio[i].flags = static_cast<uv_stdio_flags>(
             UV_CREATE_PIPE | UV_READABLE_PIPE | UV_WRITABLE_PIPE);
-        Local<String> handle_key = env->handle_string();
-        Local<Object> handle =
-            stdio->Get(context, handle_key).ToLocalChecked().As<Object>();
-        CHECK(!handle.IsEmpty());
-        options->stdio[i].data.stream =
-            reinterpret_cast<uv_stream_t*>(
-                Unwrap<PipeWrap>(handle)->UVHandle());
+        options->stdio[i].data.stream = StreamForWrap(env, stdio);
       } else if (type->StrictEquals(env->wrap_string())) {
-        Local<String> handle_key = env->handle_string();
-        Local<Object> handle =
-            stdio->Get(context, handle_key).ToLocalChecked().As<Object>();
-        uv_stream_t* stream = HandleToStream(env, handle);
-        CHECK_NOT_NULL(stream);
-
         options->stdio[i].flags = UV_INHERIT_STREAM;
-        options->stdio[i].data.stream = stream;
+        options->stdio[i].data.stream = StreamForWrap(env, stdio);
       } else {
         Local<String> fd_key = env->fd_string();
         Local<Value> fd_value = stdio->Get(context, fd_key).ToLocalChecked();
@@ -264,7 +261,7 @@ class ProcessWrap : public HandleWrap {
       CHECK_EQ(wrap->process_.data, wrap);
       wrap->object()->Set(context, env->pid_string(),
                           Integer::New(env->isolate(),
-                                       wrap->process_.pid)).FromJust();
+                                       wrap->process_.pid)).Check();
     }
 
     if (options.args) {

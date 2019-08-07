@@ -79,8 +79,7 @@ void HandleWrap::Close(Local<Value> close_callback) {
   if (!close_callback.IsEmpty() && close_callback->IsFunction()) {
     object()->Set(env()->context(),
                   env()->handle_onclose_symbol(),
-                  close_callback)
-        .FromMaybe(false);
+                  close_callback).Check();
   }
 }
 
@@ -130,13 +129,19 @@ void HandleWrap::OnClose(uv_handle_t* handle) {
   }
 }
 
-
-void HandleWrap::AddWrapMethods(Environment* env,
-                                Local<FunctionTemplate> t) {
-  env->SetProtoMethod(t, "close", HandleWrap::Close);
-  env->SetProtoMethodNoSideEffect(t, "hasRef", HandleWrap::HasRef);
-  env->SetProtoMethod(t, "ref", HandleWrap::Ref);
-  env->SetProtoMethod(t, "unref", HandleWrap::Unref);
+Local<FunctionTemplate> HandleWrap::GetConstructorTemplate(Environment* env) {
+  Local<FunctionTemplate> tmpl = env->handle_wrap_ctor_template();
+  if (tmpl.IsEmpty()) {
+    tmpl = env->NewFunctionTemplate(nullptr);
+    tmpl->SetClassName(FIXED_ONE_BYTE_STRING(env->isolate(), "HandleWrap"));
+    tmpl->Inherit(AsyncWrap::GetConstructorTemplate(env));
+    env->SetProtoMethod(tmpl, "close", HandleWrap::Close);
+    env->SetProtoMethodNoSideEffect(tmpl, "hasRef", HandleWrap::HasRef);
+    env->SetProtoMethod(tmpl, "ref", HandleWrap::Ref);
+    env->SetProtoMethod(tmpl, "unref", HandleWrap::Unref);
+    env->set_handle_wrap_ctor_template(tmpl);
+  }
+  return tmpl;
 }
 
 

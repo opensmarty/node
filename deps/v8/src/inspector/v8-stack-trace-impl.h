@@ -23,7 +23,7 @@ struct V8StackTraceId;
 
 class StackFrame {
  public:
-  explicit StackFrame(v8::Local<v8::StackFrame> frame);
+  explicit StackFrame(v8::Isolate* isolate, v8::Local<v8::StackFrame> frame);
   ~StackFrame() = default;
 
   void translate(WasmTranslation* wasmTranslation);
@@ -62,6 +62,9 @@ class V8StackTraceImpl : public V8StackTrace {
   ~V8StackTraceImpl() override;
   std::unique_ptr<protocol::Runtime::StackTrace> buildInspectorObjectImpl(
       V8Debugger* debugger) const;
+
+  std::unique_ptr<protocol::Runtime::StackTrace> buildInspectorObjectImpl(
+      V8Debugger* debugger, int maxAsyncDepth) const;
 
   // V8StackTrace implementation.
   // This method drops the async stack trace.

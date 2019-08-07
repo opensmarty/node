@@ -3,20 +3,14 @@
 
 const common = require('../common');
 const assert = require('assert');
-const tick = require('./tick');
+const tick = require('../common/tick');
 const initHooks = require('./init-hooks');
 const { checkInvocations } = require('./hook-checks');
 
 const hooks = initHooks();
 hooks.enable();
 
-// The hooks.enable() must come before require('internal/test/binding')
-// because internal/test/binding schedules a process warning on nextTick.
-// If this order is not preserved, the hooks check will fail because it
-// will not be notified about the nextTick creation but will see the
-// callback event.
-const { internalBinding } = require('internal/test/binding');
-const { HTTPParser } = internalBinding('http_parser');
+const { HTTPParser } = require('_http_common');
 
 const REQUEST = HTTPParser.REQUEST;
 
@@ -26,8 +20,9 @@ const request = Buffer.from(
   'GET /hello HTTP/1.1\r\n\r\n'
 );
 
-const parser = new HTTPParser(REQUEST);
-const as = hooks.activitiesOfTypes('HTTPPARSER');
+const parser = new HTTPParser();
+parser.initialize(REQUEST, {});
+const as = hooks.activitiesOfTypes('HTTPINCOMINGMESSAGE');
 const httpparser = as[0];
 
 assert.strictEqual(as.length, 1);
@@ -53,7 +48,7 @@ process.on('exit', onexit);
 
 function onexit() {
   hooks.disable();
-  hooks.sanityCheck('HTTPPARSER');
+  hooks.sanityCheck('HTTPINCOMINGMESSAGE');
   checkInvocations(httpparser, { init: 1, before: 1, after: 1, destroy: 1 },
                    'when process exits');
 }

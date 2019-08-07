@@ -6,8 +6,7 @@
 const common = require('../common');
 const assert = require('assert');
 const httpCommon = require('_http_common');
-const { internalBinding } = require('internal/test/binding');
-const { HTTPParser } = internalBinding('http_parser');
+const { HTTPParser } = require('_http_common');
 const net = require('net');
 
 const COUNT = httpCommon.parsers.max + 1;
@@ -25,7 +24,7 @@ function execAndClose() {
   process.stdout.write('.');
 
   const parser = parsers.pop();
-  parser.reinitialize(HTTPParser.RESPONSE);
+  parser.initialize(HTTPParser.RESPONSE, {});
 
   const socket = net.connect(common.PORT);
   socket.on('error', (e) => {
@@ -33,6 +32,7 @@ function execAndClose() {
     // https://github.com/nodejs/node/issues/2663.
     if (common.isSunOS && e.code === 'ECONNREFUSED') {
       parsers.push(parser);
+      parser.reused = true;
       socket.destroy();
       setImmediate(execAndClose);
       return;
@@ -40,12 +40,12 @@ function execAndClose() {
     throw e;
   });
 
-  parser.consume(socket._handle._externalStream);
+  parser.consume(socket._handle);
 
   parser.onIncoming = function onIncoming() {
     process.stdout.write('+');
     gotResponses++;
-    parser.unconsume(socket._handle._externalStream);
+    parser.unconsume();
     httpCommon.freeParser(parser);
     socket.destroy();
     setImmediate(execAndClose);

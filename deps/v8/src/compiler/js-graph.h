@@ -5,13 +5,13 @@
 #ifndef V8_COMPILER_JS_GRAPH_H_
 #define V8_COMPILER_JS_GRAPH_H_
 
+#include "src/common/globals.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/graph.h"
 #include "src/compiler/js-operator.h"
 #include "src/compiler/machine-graph.h"
 #include "src/compiler/node-properties.h"
-#include "src/globals.h"
-#include "src/isolate.h"
+#include "src/execution/isolate.h"
 
 namespace v8 {
 namespace internal {
@@ -61,12 +61,6 @@ class V8_EXPORT_PRIVATE JSGraph : public MachineGraph {
   // Creates a NumberConstant node, usually canonicalized.
   Node* Constant(double value);
 
-  // Creates a NumberConstant node, usually canonicalized.
-  Node* Constant(int32_t value);
-
-  // Creates a NumberConstant node, usually canonicalized.
-  Node* Constant(uint32_t value);
-
   // Creates a HeapConstant node for either true or false.
   Node* BooleanConstant(bool is_true) {
     return is_true ? TrueConstant() : FalseConstant();
@@ -86,29 +80,31 @@ class V8_EXPORT_PRIVATE JSGraph : public MachineGraph {
   void GetCachedNodes(NodeVector* nodes);
 
 // Cached global nodes.
-#define CACHED_GLOBAL_LIST(V)       \
-  V(AllocateInNewSpaceStubConstant) \
-  V(AllocateInOldSpaceStubConstant) \
-  V(ArrayConstructorStubConstant)   \
-  V(ToNumberBuiltinConstant)        \
-  V(EmptyFixedArrayConstant)        \
-  V(EmptyStringConstant)            \
-  V(FixedArrayMapConstant)          \
-  V(PropertyArrayMapConstant)       \
-  V(FixedDoubleArrayMapConstant)    \
-  V(HeapNumberMapConstant)          \
-  V(OptimizedOutConstant)           \
-  V(StaleRegisterConstant)          \
-  V(UndefinedConstant)              \
-  V(TheHoleConstant)                \
-  V(TrueConstant)                   \
-  V(FalseConstant)                  \
-  V(NullConstant)                   \
-  V(ZeroConstant)                   \
-  V(OneConstant)                    \
-  V(NaNConstant)                    \
-  V(MinusOneConstant)               \
-  V(EmptyStateValues)               \
+#define CACHED_GLOBAL_LIST(V)              \
+  V(AllocateInYoungGenerationStubConstant) \
+  V(AllocateInOldGenerationStubConstant)   \
+  V(ArrayConstructorStubConstant)          \
+  V(BigIntMapConstant)                     \
+  V(BooleanMapConstant)                    \
+  V(ToNumberBuiltinConstant)               \
+  V(EmptyFixedArrayConstant)               \
+  V(EmptyStringConstant)                   \
+  V(FixedArrayMapConstant)                 \
+  V(PropertyArrayMapConstant)              \
+  V(FixedDoubleArrayMapConstant)           \
+  V(HeapNumberMapConstant)                 \
+  V(OptimizedOutConstant)                  \
+  V(StaleRegisterConstant)                 \
+  V(UndefinedConstant)                     \
+  V(TheHoleConstant)                       \
+  V(TrueConstant)                          \
+  V(FalseConstant)                         \
+  V(NullConstant)                          \
+  V(ZeroConstant)                          \
+  V(OneConstant)                           \
+  V(NaNConstant)                           \
+  V(MinusOneConstant)                      \
+  V(EmptyStateValues)                      \
   V(SingleDeadTypedStateValues)
 
 // Cached global node accessor methods.

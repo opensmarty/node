@@ -37,7 +37,8 @@ class LibuvStreamWrap : public HandleWrap, public StreamBase {
  public:
   static void Initialize(v8::Local<v8::Object> target,
                          v8::Local<v8::Value> unused,
-                         v8::Local<v8::Context> context);
+                         v8::Local<v8::Context> context,
+                         void* priv);
 
   int GetFD() override;
   bool IsAlive() override;
@@ -76,6 +77,8 @@ class LibuvStreamWrap : public HandleWrap, public StreamBase {
   ShutdownWrap* CreateShutdownWrap(v8::Local<v8::Object> object) override;
   WriteWrap* CreateWriteWrap(v8::Local<v8::Object> object) override;
 
+  static LibuvStreamWrap* From(Environment* env, v8::Local<v8::Object> object);
+
  protected:
   LibuvStreamWrap(Environment* env,
                   v8::Local<v8::Object> object,
@@ -84,8 +87,8 @@ class LibuvStreamWrap : public HandleWrap, public StreamBase {
 
   AsyncWrap* GetAsyncWrap() override;
 
-  static void AddMethods(Environment* env,
-                         v8::Local<v8::FunctionTemplate> target);
+  static v8::Local<v8::FunctionTemplate> GetConstructorTemplate(
+      Environment* env);
 
  protected:
   inline void set_fd(int fd) {

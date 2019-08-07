@@ -11,6 +11,7 @@
 #include "libplatform/libplatform.h"
 #include "node.h"
 #include "node_mutex.h"
+#include "tracing/agent.h"
 #include "uv.h"
 
 namespace node {
@@ -23,7 +24,7 @@ template <class T>
 class TaskQueue {
  public:
   TaskQueue();
-  ~TaskQueue() {}
+  ~TaskQueue() = default;
 
   void Push(std::unique_ptr<T> task);
   std::unique_ptr<T> Pop();
@@ -55,18 +56,23 @@ class PerIsolatePlatformData :
     public std::enable_shared_from_this<PerIsolatePlatformData> {
  public:
   PerIsolatePlatformData(v8::Isolate* isolate, uv_loop_t* loop);
-  ~PerIsolatePlatformData();
+  ~PerIsolatePlatformData() override;
 
   void PostTask(std::unique_ptr<v8::Task> task) override;
   void PostIdleTask(std::unique_ptr<v8::IdleTask> task) override;
   void PostDelayedTask(std::unique_ptr<v8::Task> task,
                        double delay_in_seconds) override;
-  bool IdleTasksEnabled() override { return false; };
+  bool IdleTasksEnabled() override { return false; }
 
+  // Non-nestable tasks are treated like regular tasks.
+  bool NonNestableTasksEnabled() const override { return true; }
+  bool NonNestableDelayedTasksEnabled() const override { return true; }
+  void PostNonNestableTask(std::unique_ptr<v8::Task> task) override;
+  void PostNonNestableDelayedTask(std::unique_ptr<v8::Task> task,
+                                  double delay_in_seconds) override;
+
+  void AddShutdownCallback(void (*callback)(void*), void* data);
   void Shutdown();
-
-  void ref();
-  int unref();
 
   // Returns true if work was dispatched or executed. New tasks that are
   // posted during flushing of the queue are postponed until the next
@@ -83,7 +89,13 @@ class PerIsolatePlatformData :
   static void RunForegroundTask(std::unique_ptr<v8::Task> task);
   static void RunForegroundTask(uv_timer_t* timer);
 
-  int ref_count_ = 1;
+  struct ShutdownCallback {
+    void (*cb)(void*);
+    void* data;
+  };
+  typedef std::vector<ShutdownCallback> ShutdownCbList;
+  ShutdownCbList shutdown_callbacks_;
+
   uv_loop_t* const loop_;
   uv_async_t* flush_tasks_ = nullptr;
   TaskQueue<v8::Task> foreground_tasks_;
@@ -120,8 +132,9 @@ class WorkerThreadsTaskRunner {
 
 class NodePlatform : public MultiIsolatePlatform {
  public:
-  NodePlatform(int thread_pool_size, v8::TracingController* tracing_controller);
-  virtual ~NodePlatform() {}
+  NodePlatform(int thread_pool_size,
+               node::tracing::TracingController* tracing_controller);
+  ~NodePlatform() override = default;
 
   void DrainTasks(v8::Isolate* isolate) override;
   void CancelPendingDelayedTasks(v8::Isolate* isolate) override;
@@ -132,17 +145,24 @@ class NodePlatform : public MultiIsolatePlatform {
   void CallOnWorkerThread(std::unique_ptr<v8::Task> task) override;
   void CallDelayedOnWorkerThread(std::unique_ptr<v8::Task> task,
                                  double delay_in_seconds) override;
-  void CallOnForegroundThread(v8::Isolate* isolate, v8::Task* task) override;
-  void CallDelayedOnForegroundThread(v8::Isolate* isolate, v8::Task* task,
-                                     double delay_in_seconds) override;
+  void CallOnForegroundThread(v8::Isolate* isolate, v8::Task* task) override {
+    UNREACHABLE();
+  }
+  void CallDelayedOnForegroundThread(v8::Isolate* isolate,
+                                     v8::Task* task,
+                                     double delay_in_seconds) override {
+    UNREACHABLE();
+  }
   bool IdleTasksEnabled(v8::Isolate* isolate) override;
   double MonotonicallyIncreasingTime() override;
   double CurrentClockTimeMillis() override;
-  v8::TracingController* GetTracingController() override;
+  node::tracing::TracingController* GetTracingController() override;
   bool FlushForegroundTasks(v8::Isolate* isolate) override;
 
   void RegisterIsolate(v8::Isolate* isolate, uv_loop_t* loop) override;
   void UnregisterIsolate(v8::Isolate* isolate) override;
+  void AddIsolateFinishedCallback(v8::Isolate* isolate,
+                                  void (*callback)(void*), void* data) override;
 
   std::shared_ptr<v8::TaskRunner> GetForegroundTaskRunner(
       v8::Isolate* isolate) override;
@@ -154,7 +174,7 @@ class NodePlatform : public MultiIsolatePlatform {
   std::unordered_map<v8::Isolate*,
                      std::shared_ptr<PerIsolatePlatformData>> per_isolate_;
 
-  std::unique_ptr<v8::TracingController> tracing_controller_;
+  node::tracing::TracingController* tracing_controller_;
   std::shared_ptr<WorkerThreadsTaskRunner> worker_thread_task_runner_;
 };
 

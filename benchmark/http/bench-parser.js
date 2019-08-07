@@ -10,8 +10,7 @@ const bench = common.createBenchmark(main, {
 });
 
 function main({ len, n }) {
-  const { internalBinding } = require('internal/test/binding');
-  const { HTTPParser } = internalBinding('http_parser');
+  const { HTTPParser } = common.binding('http_parser');
   const REQUEST = HTTPParser.REQUEST;
   const kOnHeaders = HTTPParser.kOnHeaders | 0;
   const kOnHeadersComplete = HTTPParser.kOnHeadersComplete | 0;
@@ -23,15 +22,16 @@ function main({ len, n }) {
     const parser = newParser(REQUEST);
 
     bench.start();
-    for (var i = 0; i < n; i++) {
+    for (let i = 0; i < n; i++) {
       parser.execute(header, 0, header.length);
-      parser.reinitialize(REQUEST);
+      parser.initialize(REQUEST, {});
     }
     bench.end(n);
   }
 
   function newParser(type) {
-    const parser = new HTTPParser(type);
+    const parser = new HTTPParser();
+    parser.initialize(type, {});
 
     parser.headers = [];
 
@@ -45,7 +45,7 @@ function main({ len, n }) {
 
   let header = `GET /hello HTTP/1.1${CRLF}Content-Type: text/plain${CRLF}`;
 
-  for (var i = 0; i < len; i++) {
+  for (let i = 0; i < len; i++) {
     header += `X-Filler${i}: ${Math.random().toString(36).substr(2)}${CRLF}`;
   }
   header += CRLF;

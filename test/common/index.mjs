@@ -1,11 +1,14 @@
 // Flags: --experimental-modules
-/* eslint-disable node-core/required-modules */
-import common from './index.js';
+/* eslint-disable node-core/require-common-first, node-core/required-modules */
+
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const common = require('./index.js');
 
 const {
   isMainThread,
   isWindows,
-  isWOW64,
   isAIX,
   isLinuxPPCBE,
   isSunOS,
@@ -22,13 +25,11 @@ const {
   PIPE,
   hasIPv6,
   childShouldThrowAndAbort,
-  ddCommand,
+  createZeroFilledFile,
   platformTimeout,
   allowGlobals,
-  leakedGlobals,
   mustCall,
   mustCallAtLeast,
-  mustCallAsync,
   hasMultiLocalhost,
   skipIfEslintMissing,
   canCreateSymLink,
@@ -40,7 +41,6 @@ const {
   nodeProcessAborted,
   busyLoop,
   isAlive,
-  noWarnCode,
   expectWarning,
   expectsError,
   skipIfInspectorDisabled,
@@ -55,7 +55,6 @@ const {
 export {
   isMainThread,
   isWindows,
-  isWOW64,
   isAIX,
   isLinuxPPCBE,
   isSunOS,
@@ -72,13 +71,11 @@ export {
   PIPE,
   hasIPv6,
   childShouldThrowAndAbort,
-  ddCommand,
+  createZeroFilledFile,
   platformTimeout,
   allowGlobals,
-  leakedGlobals,
   mustCall,
   mustCallAtLeast,
-  mustCallAsync,
   hasMultiLocalhost,
   skipIfEslintMissing,
   canCreateSymLink,
@@ -90,7 +87,6 @@ export {
   nodeProcessAborted,
   busyLoop,
   isAlive,
-  noWarnCode,
   expectWarning,
   expectsError,
   skipIfInspectorDisabled,
@@ -99,5 +95,6 @@ export {
   getBufferSources,
   disableCrashOnUnhandledRejection,
   getTTYfd,
-  runWithInvalidFD
+  runWithInvalidFD,
+  createRequire
 };

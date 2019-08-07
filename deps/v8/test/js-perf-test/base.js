@@ -105,7 +105,8 @@ BenchmarkSuite.ResetRNG = function() {
   Math.random = (function() {
     var seed = 49734321;
     return function() {
-      // Robert Jenkins' 32 bit integer hash function.
+      // Robert Jenkins' 32-bit integer hash function.
+      seed = seed & 0xffffffff;
       seed = ((seed + 0x7ed55d16) + (seed << 12))  & 0xffffffff;
       seed = ((seed ^ 0xc761c23c) ^ (seed >>> 19)) & 0xffffffff;
       seed = ((seed + 0x165667b1) + (seed << 5))   & 0xffffffff;
@@ -372,4 +373,24 @@ BenchmarkSuite.prototype.RunStep = function(runner) {
 
   // Start out running the setup.
   return RunNextSetup();
+}
+
+
+
+function assert(condition, message) {
+  if (!condition) throw Error(message);
+}
+
+
+function assertEquals(expected, actual, message) {
+  var isSame =
+      expected === actual || typeof expected !== expected && actual !== actual;
+  if (isSame) return true;
+  var details = `Expected:  ${String(expected)}\n` +
+                `But found: ${String(actual)}`;
+  var lines = ["Benchmark Error:", details];
+  if (message !== undefined) {
+    lines = ["Benchmark Error:", details, "", String(message)];
+  }
+  throw new Error(lines.join("\n"));
 }

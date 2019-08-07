@@ -38,17 +38,16 @@ p.onexit = function(exitCode, signal) {
   p.close();
   pipe.readStart();
 
-  assert.strictEqual(0, exitCode);
-  assert.strictEqual('', signal);
+  assert.strictEqual(exitCode, 0);
+  assert.strictEqual(signal, '');
 
   processExited = true;
 };
 
-pipe.onread = function(err, b, off, len) {
+pipe.onread = function(arrayBuffer) {
   assert.ok(processExited);
-  if (b) {
+  if (arrayBuffer) {
     gotPipeData = true;
-    console.log('read %d', len);
   } else {
     gotPipeEOF = true;
     pipe.close();

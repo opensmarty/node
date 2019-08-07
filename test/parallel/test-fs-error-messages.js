@@ -26,15 +26,22 @@ const fixtures = require('../common/fixtures');
 const tmpdir = require('../common/tmpdir');
 const assert = require('assert');
 const fs = require('fs');
+const path = require('path');
 
 tmpdir.refresh();
 
-const nonexistentFile = fixtures.path('non-existent');
-const nonexistentDir = fixtures.path('non-existent', 'foo', 'bar');
-const existingFile = fixtures.path('exit.js');
-const existingFile2 = fixtures.path('create-file.js');
-const existingDir = tmpdir.path;
+
+const nonexistentFile = path.join(tmpdir.path, 'non-existent');
+const nonexistentDir = path.join(tmpdir.path, 'non-existent', 'foo', 'bar');
+const existingFile = path.join(tmpdir.path, 'existingFile.js');
+const existingFile2 = path.join(tmpdir.path, 'existingFile2.js');
+const existingDir = path.join(tmpdir.path, 'dir');
 const existingDir2 = fixtures.path('keys');
+fs.mkdirSync(existingDir);
+fs.writeFileSync(existingFile, 'test', 'utf-8');
+fs.writeFileSync(existingFile2, 'test', 'utf-8');
+
+
 const { COPYFILE_EXCL } = fs.constants;
 const { internalBinding } = require('internal/test/binding');
 const {
@@ -183,7 +190,7 @@ function re(literals, ...values) {
   );
 }
 
-// link nonexistent file
+// Link nonexistent file
 {
   const validateError = (err) => {
     assert.strictEqual(nonexistentFile, err.path);
@@ -292,15 +299,16 @@ function re(literals, ...values) {
     return true;
   };
 
-  fs.rename(nonexistentFile, 'foo', common.mustCall(validateError));
+  const destFile = path.join(tmpdir.path, 'foo');
+  fs.rename(nonexistentFile, destFile, common.mustCall(validateError));
 
   assert.throws(
-    () => fs.renameSync(nonexistentFile, 'foo'),
+    () => fs.renameSync(nonexistentFile, destFile),
     validateError
   );
 }
 
-// rename non-empty directory
+// Rename non-empty directory
 {
   const validateError = (err) => {
     assert.strictEqual(existingDir, err.path);
@@ -313,7 +321,7 @@ function re(literals, ...values) {
         `ENOTEMPTY: directory not empty, rename '${existingDir}' -> ` +
         `'${existingDir2}'`);
       assert.strictEqual(err.errno, UV_ENOTEMPTY);
-    } else if (err.code === 'EXDEV') {  // not on the same mounted filesystem
+    } else if (err.code === 'EXDEV') {  // Not on the same mounted filesystem
       assert.strictEqual(
         err.message,
         `EXDEV: cross-device link not permitted, rename '${existingDir}' -> ` +

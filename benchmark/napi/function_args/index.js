@@ -1,4 +1,4 @@
-// show the difference between calling a V8 binding C++ function
+// Show the difference between calling a V8 binding C++ function
 // relative to a comparable N-API C++ function,
 // in various types/numbers of arguments.
 // Reports n of calls per second.
@@ -10,18 +10,16 @@ let v8;
 let napi;
 
 try {
-  v8 = require('./build/Release/binding');
-} catch (err) {
-  // eslint-disable-next-line no-path-concat
-  console.error(__filename + ': V8 Binding failed to load');
+  v8 = require(`./build/${common.buildType}/binding`);
+} catch {
+  console.error(`${__filename}: V8 Binding failed to load`);
   process.exit(0);
 }
 
 try {
-  napi = require('./build/Release/napi_binding');
-} catch (err) {
-  // eslint-disable-next-line no-path-concat
-  console.error(__filename + ': NAPI-Binding failed to load');
+  napi = require(`./build/${common.buildType}/napi_binding`);
+} catch {
+  console.error(`${__filename}: NAPI-Binding failed to load`);
   process.exit(0);
 }
 

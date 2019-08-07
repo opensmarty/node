@@ -24,8 +24,9 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include "node_internals.h"
 #include "node_buffer.h"
+#include "uv.h"
+#include "v8.h"
 
 namespace node {
 
@@ -40,7 +41,7 @@ class SyncProcessOutputBuffer {
   static const unsigned int kBufferSize = 65536;
 
  public:
-  inline SyncProcessOutputBuffer();
+  inline SyncProcessOutputBuffer() = default;
 
   inline void OnAlloc(size_t suggested_size, uv_buf_t* buf) const;
   inline void OnRead(const uv_buf_t* buf, size_t nread);
@@ -56,9 +57,9 @@ class SyncProcessOutputBuffer {
  private:
   // Use unsigned int because that's what `uv_buf_init` takes.
   mutable char data_[kBufferSize];
-  unsigned int used_;
+  unsigned int used_ = 0;
 
-  SyncProcessOutputBuffer* next_;
+  SyncProcessOutputBuffer* next_ = nullptr;
 };
 
 
@@ -141,7 +142,8 @@ class SyncProcessRunner {
  public:
   static void Initialize(v8::Local<v8::Object> target,
                          v8::Local<v8::Value> unused,
-                         v8::Local<v8::Context> context);
+                         v8::Local<v8::Context> context,
+                         void* priv);
   static void Spawn(const v8::FunctionCallbackInfo<v8::Value>& args);
 
  private:
@@ -203,7 +205,7 @@ class SyncProcessRunner {
 
   uint32_t stdio_count_;
   uv_stdio_container_t* uv_stdio_containers_;
-  std::unique_ptr<std::unique_ptr<SyncProcessStdioPipe>[]> stdio_pipes_;
+  std::vector<std::unique_ptr<SyncProcessStdioPipe>> stdio_pipes_;
   bool stdio_pipes_initialized_;
 
   uv_process_options_t uv_process_options_;

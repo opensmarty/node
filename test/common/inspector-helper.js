@@ -63,7 +63,7 @@ function parseWSFrame(buffer) {
   if (buffer[0] === 0x88 && buffer[1] === 0x00) {
     return { length: 2, message, closed: true };
   }
-  assert.strictEqual(0x81, buffer[0]);
+  assert.strictEqual(buffer[0], 0x81);
   let dataLen = 0x7F & buffer[1];
   let bodyOffset = 2;
   if (buffer.length < bodyOffset + dataLen)
@@ -191,6 +191,10 @@ class InspectorSession {
     }
   }
 
+  unprocessedNotifications() {
+    return this._unprocessedNotifications;
+  }
+
   _sendMessage(message) {
     const msg = JSON.parse(JSON.stringify(message)); // Clone!
     msg.id = this._nextId++;
@@ -251,7 +255,7 @@ class InspectorSession {
       assert.strictEqual(scriptPath.toString(),
                          expectedScriptPath.toString(),
                          `${scriptPath} !== ${expectedScriptPath}`);
-      assert.strictEqual(line, location.lineNumber);
+      assert.strictEqual(location.lineNumber, line);
       return true;
     }
   }
@@ -314,7 +318,7 @@ class InspectorSession {
 }
 
 class NodeInstance extends EventEmitter {
-  constructor(inspectorFlags = ['--inspect-brk=0'],
+  constructor(inspectorFlags = ['--inspect-brk=0', '--expose-internals'],
               scriptContents = '',
               scriptFile = _MAINSCRIPT) {
     super();
@@ -348,7 +352,8 @@ class NodeInstance extends EventEmitter {
 
   static async startViaSignal(scriptContents) {
     const instance = new NodeInstance(
-      [], `${scriptContents}\nprocess._rawDebug('started');`, undefined);
+      ['--expose-internals'],
+      `${scriptContents}\nprocess._rawDebug('started');`, undefined);
     const msg = 'Timed out waiting for process to start';
     while (await fires(instance.nextStderrString(), msg, TIMEOUT) !==
              'started') {}
@@ -416,7 +421,7 @@ class NodeInstance extends EventEmitter {
   async connectInspectorSession() {
     console.log('[test]', 'Connecting to a child Node process');
     const upgradeRequest = await this.sendUpgradeRequest();
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       upgradeRequest
         .on('upgrade',
             (message, socket) => resolve(new InspectorSession(socket, this)))
@@ -427,7 +432,7 @@ class NodeInstance extends EventEmitter {
   async expectConnectionDeclined() {
     console.log('[test]', 'Checking upgrade is not possible');
     const upgradeRequest = await this.sendUpgradeRequest();
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       upgradeRequest
           .on('upgrade', common.mustNotCall('Upgrade was received'))
           .on('response', (response) =>

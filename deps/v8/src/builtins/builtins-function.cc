@@ -2,16 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/builtins/builtins-utils.h"
+#include "src/builtins/builtins-utils-inl.h"
 #include "src/builtins/builtins.h"
-#include "src/code-factory.h"
-#include "src/compiler.h"
-#include "src/conversions.h"
-#include "src/counters.h"
-#include "src/lookup.h"
-#include "src/objects-inl.h"
+#include "src/codegen/code-factory.h"
+#include "src/codegen/compiler.h"
+#include "src/logging/counters.h"
+#include "src/numbers/conversions.h"
 #include "src/objects/api-callbacks.h"
-#include "src/string-builder.h"
+#include "src/objects/lookup.h"
+#include "src/objects/objects-inl.h"
+#include "src/strings/string-builder-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -41,11 +41,7 @@ MaybeHandle<Object> CreateDynamicFunction(Isolate* isolate,
     IncrementalStringBuilder builder(isolate);
     builder.AppendCharacter('(');
     builder.AppendCString(token);
-    if (FLAG_harmony_function_tostring) {
-      builder.AppendCString(" anonymous(");
-    } else {
-      builder.AppendCharacter('(');
-    }
+    builder.AppendCString(" anonymous(");
     bool parenthesis_in_arg_string = false;
     if (argc > 1) {
       for (int i = 1; i < argc; ++i) {
@@ -55,31 +51,10 @@ MaybeHandle<Object> CreateDynamicFunction(Isolate* isolate,
             isolate, param, Object::ToString(isolate, args.at(i)), Object);
         param = String::Flatten(isolate, param);
         builder.AppendString(param);
-        if (!FLAG_harmony_function_tostring) {
-          // If the formal parameters string include ) - an illegal
-          // character - it may make the combined function expression
-          // compile. We avoid this problem by checking for this early on.
-          DisallowHeapAllocation no_gc;  // Ensure vectors stay valid.
-          String::FlatContent param_content = param->GetFlatContent();
-          for (int i = 0, length = param->length(); i < length; ++i) {
-            if (param_content.Get(i) == ')') {
-              parenthesis_in_arg_string = true;
-              break;
-            }
-          }
-        }
-      }
-      if (!FLAG_harmony_function_tostring) {
-        // If the formal parameters include an unbalanced block comment, the
-        // function must be rejected. Since JavaScript does not allow nested
-        // comments we can include a trailing block comment to catch this.
-        builder.AppendCString("\n/*``*/");
       }
     }
-    if (FLAG_harmony_function_tostring) {
-      builder.AppendCharacter('\n');
-      parameters_end_pos = builder.Length();
-    }
+    builder.AppendCharacter('\n');
+    parameters_end_pos = builder.Length();
     builder.AppendCString(") {\n");
     if (argc > 0) {
       Handle<String> body;
@@ -115,7 +90,7 @@ MaybeHandle<Object> CreateDynamicFunction(Isolate* isolate,
         Execution::Call(isolate, function, target_global_proxy, 0, nullptr),
         Object);
     function = Handle<JSFunction>::cast(result);
-    function->shared()->set_name_should_print_as_anonymous(true);
+    function->shared().set_name_should_print_as_anonymous(true);
   }
 
   // If new.target is equal to target then the function created
@@ -139,7 +114,7 @@ MaybeHandle<Object> CreateDynamicFunction(Isolate* isolate,
 
     Handle<Context> context(function->context(), isolate);
     function = isolate->factory()->NewFunctionFromSharedFunctionInfo(
-        map, shared_info, context, NOT_TENURED);
+        map, shared_info, context, AllocationType::kYoung);
   }
   return function;
 }
@@ -174,8 +149,8 @@ BUILTIN(AsyncFunctionConstructor) {
   // determined after the function is resumed.
   Handle<JSFunction> func = Handle<JSFunction>::cast(maybe_func);
   Handle<Script> script =
-      handle(Script::cast(func->shared()->script()), isolate);
-  int position = script->GetEvalPosition();
+      handle(Script::cast(func->shared().script()), isolate);
+  int position = Script::GetEvalPosition(isolate, script);
   USE(position);
 
   return *func;
@@ -193,8 +168,8 @@ BUILTIN(AsyncGeneratorFunctionConstructor) {
   // determined after the function is resumed.
   Handle<JSFunction> func = Handle<JSFunction>::cast(maybe_func);
   Handle<Script> script =
-      handle(Script::cast(func->shared()->script()), isolate);
-  int position = script->GetEvalPosition();
+      handle(Script::cast(func->shared().script()), isolate);
+  int position = Script::GetEvalPosition(isolate, script);
   USE(position);
 
   return *func;
@@ -202,7 +177,7 @@ BUILTIN(AsyncGeneratorFunctionConstructor) {
 
 namespace {
 
-Object* DoFunctionBind(Isolate* isolate, BuiltinArguments args) {
+Object DoFunctionBind(Isolate* isolate, BuiltinArguments args) {
   HandleScope scope(isolate);
   DCHECK_LE(1, args.length());
   if (!args.receiver()->IsCallable()) {
@@ -303,8 +278,8 @@ BUILTIN(FunctionPrototypeToString) {
   }
   // With the revised toString behavior, all callable objects are valid
   // receivers for this method.
-  if (FLAG_harmony_function_tostring && receiver->IsJSReceiver() &&
-      JSReceiver::cast(*receiver)->map()->is_callable()) {
+  if (receiver->IsJSReceiver() &&
+      JSReceiver::cast(*receiver).map().is_callable()) {
     return ReadOnlyRoots(isolate).function_native_code_string();
   }
   THROW_NEW_ERROR_RETURN_FAILURE(

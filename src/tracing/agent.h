@@ -7,6 +7,7 @@
 #include "util.h"
 #include "node_mutex.h"
 
+#include <list>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -21,7 +22,7 @@ class Agent;
 
 class AsyncTraceWriter {
  public:
-  virtual ~AsyncTraceWriter() {}
+  virtual ~AsyncTraceWriter() = default;
   virtual void AppendTraceEvent(TraceObject* trace_event) = 0;
   virtual void Flush(bool blocking) = 0;
   virtual void InitializeOnThread(uv_loop_t* loop) {}
@@ -34,11 +35,20 @@ class TracingController : public v8::platform::tracing::TracingController {
   int64_t CurrentTimestampMicroseconds() override {
     return uv_hrtime() / 1000;
   }
+  void AddMetadataEvent(
+      const unsigned char* category_group_enabled,
+      const char* name,
+      int num_args,
+      const char** arg_names,
+      const unsigned char* arg_types,
+      const uint64_t* arg_values,
+      std::unique_ptr<v8::ConvertableToTraceFormat>* convertable_values,
+      unsigned int flags);
 };
 
 class AgentWriterHandle {
  public:
-  inline AgentWriterHandle() {}
+  inline AgentWriterHandle() = default;
   inline ~AgentWriterHandle() { reset(); }
 
   inline AgentWriterHandle(AgentWriterHandle&& other);
@@ -49,15 +59,17 @@ class AgentWriterHandle {
   inline void Enable(const std::set<std::string>& categories);
   inline void Disable(const std::set<std::string>& categories);
 
+  inline bool IsDefaultHandle();
+
   inline Agent* agent() { return agent_; }
 
   inline v8::TracingController* GetTracingController();
 
- private:
-  inline AgentWriterHandle(Agent* agent, int id) : agent_(agent), id_(id) {}
-
   AgentWriterHandle(const AgentWriterHandle& other) = delete;
   AgentWriterHandle& operator=(const AgentWriterHandle& other) = delete;
+
+ private:
+  inline AgentWriterHandle(Agent* agent, int id) : agent_(agent), id_(id) {}
 
   Agent* agent_ = nullptr;
   int id_;
@@ -70,7 +82,11 @@ class Agent {
   Agent();
   ~Agent();
 
-  TracingController* GetTracingController() { return tracing_controller_; }
+  TracingController* GetTracingController() {
+    TracingController* controller = tracing_controller_.get();
+    CHECK_NOT_NULL(controller);
+    return controller;
+  }
 
   enum UseDefaultCategoryMode {
     kUseDefaultCategories,
@@ -91,6 +107,8 @@ class Agent {
 
   // Writes to all writers registered through AddClient().
   void AppendTraceEvent(TraceObject* trace_event);
+
+  void AddMetadataEvent(std::unique_ptr<TraceObject> event);
   // Flushes all writers registered through AddClient().
   void Flush(bool blocking);
 
@@ -99,7 +117,6 @@ class Agent {
  private:
   friend class AgentWriterHandle;
 
-  static void ThreadCb(void* arg);
   void InitializeWritersOnThread();
 
   void Start();
@@ -121,7 +138,7 @@ class Agent {
   // These maps store the original arguments to AddClient(), by id.
   std::unordered_map<int, std::multiset<std::string>> categories_;
   std::unordered_map<int, std::unique_ptr<AsyncTraceWriter>> writers_;
-  TracingController* tracing_controller_ = nullptr;
+  std::unique_ptr<TracingController> tracing_controller_;
 
   // Variables related to initializing per-event-loop properties of individual
   // writers, such as libuv handles.
@@ -129,6 +146,9 @@ class Agent {
   ConditionVariable initialize_writer_condvar_;
   uv_async_t initialize_writer_async_;
   std::set<AsyncTraceWriter*> to_be_initialized_;
+
+  Mutex metadata_events_mutex_;
+  std::list<std::unique_ptr<TraceObject>> metadata_events_;
 };
 
 void AgentWriterHandle::reset() {
@@ -155,6 +175,10 @@ void AgentWriterHandle::Enable(const std::set<std::string>& categories) {
 
 void AgentWriterHandle::Disable(const std::set<std::string>& categories) {
   if (agent_ != nullptr) agent_->Disable(id_, categories);
+}
+
+bool AgentWriterHandle::IsDefaultHandle() {
+  return agent_ != nullptr && id_ == Agent::kDefaultHandleId;
 }
 
 inline v8::TracingController* AgentWriterHandle::GetTracingController() {

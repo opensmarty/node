@@ -8,6 +8,7 @@ if (!common.hasCrypto)
 const assert = require('assert');
 const h2 = require('http2');
 const net = require('net');
+const util = require('util');
 
 const { kTimeout } = require('internal/timers');
 
@@ -34,6 +35,22 @@ server.on('stream', common.mustCall(function(stream, headers) {
 
   socket.setTimeout(987);
   assert.strictEqual(session[kTimeout]._idleTimeout, 987);
+
+  // The indentation is corrected depending on the depth.
+  let inspectedTimeout = util.inspect(session[kTimeout]);
+  assert(inspectedTimeout.includes('  _idlePrev: [TimersList]'));
+  assert(inspectedTimeout.includes('  _idleNext: [TimersList]'));
+  assert(!inspectedTimeout.includes('   _idleNext: [TimersList]'));
+
+  inspectedTimeout = util.inspect([ session[kTimeout] ]);
+  assert(inspectedTimeout.includes('    _idlePrev: [TimersList]'));
+  assert(inspectedTimeout.includes('    _idleNext: [TimersList]'));
+  assert(!inspectedTimeout.includes('     _idleNext: [TimersList]'));
+
+  const inspectedTimersList = util.inspect([[ session[kTimeout]._idlePrev ]]);
+  assert(inspectedTimersList.includes('      _idlePrev: [Timeout]'));
+  assert(inspectedTimersList.includes('      _idleNext: [Timeout]'));
+  assert(!inspectedTimersList.includes('       _idleNext: [Timeout]'));
 
   common.expectsError(() => socket.destroy, errMsg);
   common.expectsError(() => socket.emit, errMsg);
@@ -74,6 +91,17 @@ server.on('stream', common.mustCall(function(stream, headers) {
   assert.strictEqual(socket.readable, 0);
 
   stream.end();
+
+  // Setting socket properties sets the session properties correctly.
+  const fn = () => {};
+  socket.setTimeout = fn;
+  assert.strictEqual(session.setTimeout, fn);
+
+  socket.ref = fn;
+  assert.strictEqual(session.ref, fn);
+
+  socket.unref = fn;
+  assert.strictEqual(session.unref, fn);
 
   stream.session.on('close', common.mustCall(() => {
     assert.strictEqual(session.socket, undefined);

@@ -1,4 +1,4 @@
-// test the throughput of the fs.WriteStream class.
+// Test the throughput of the fs.WriteStream class.
 'use strict';
 
 const path = require('path');
@@ -33,19 +33,19 @@ function main({ dur, encodingType, size }) {
       throw new Error(`invalid encodingType: ${encodingType}`);
   }
 
-  try { fs.unlinkSync(filename); } catch (e) {}
+  try { fs.unlinkSync(filename); } catch {}
 
   var started = false;
   var ended = false;
 
-  var f = fs.createWriteStream(filename);
+  const f = fs.createWriteStream(filename);
   f.on('drain', write);
   f.on('open', write);
   f.on('close', done);
-  f.on('finish', function() {
+  f.on('finish', () => {
     ended = true;
     const written = fs.statSync(filename).size / 1024;
-    try { fs.unlinkSync(filename); } catch (e) {}
+    try { fs.unlinkSync(filename); } catch {}
     bench.end(written / 1024);
   });
 
@@ -53,7 +53,7 @@ function main({ dur, encodingType, size }) {
   function write() {
     if (!started) {
       started = true;
-      setTimeout(function() {
+      setTimeout(() => {
         f.end();
       }, dur * 1000);
       bench.start();

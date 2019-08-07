@@ -1,3 +1,4 @@
+// Flags: --expose-internals
 'use strict';
 
 const common = require('../common');
@@ -6,11 +7,12 @@ const fs = require('fs');
 
 const tmpdir = require('../common/tmpdir');
 
-const binding = process.binding('fs');
+const { internalBinding } = require('internal/test/binding');
+const binding = internalBinding('fs');
 
 const readdirDir = tmpdir.path;
 const files = ['empty', 'files', 'for', 'just', 'testing'];
-const constants = process.binding('constants').fs;
+const constants = require('fs').constants;
 const types = {
   isDirectory: constants.UV_DIRENT_DIR,
   isFile: constants.UV_DIRENT_FILE,
@@ -49,6 +51,19 @@ function assertDirents(dirents) {
 // Check the readdir Sync version
 assertDirents(fs.readdirSync(readdirDir, { withFileTypes: true }));
 
+fs.readdir(__filename, {
+  withFileTypes: true
+}, common.mustCall((err) => {
+  assert.throws(
+    () => { throw err; },
+    {
+      code: 'ENOTDIR',
+      name: 'Error',
+      message: `ENOTDIR: not a directory, scandir '${__filename}'`
+    }
+  );
+}));
+
 // Check the readdir async version
 fs.readdir(readdirDir, {
   withFileTypes: true
@@ -57,13 +72,12 @@ fs.readdir(readdirDir, {
   assertDirents(dirents);
 }));
 
-// Check the promisified version
-assert.doesNotReject(async () => {
+(async () => {
   const dirents = await fs.promises.readdir(readdirDir, {
     withFileTypes: true
   });
   assertDirents(dirents);
-});
+})();
 
 // Check for correct types when the binding returns unknowns
 const UNKNOWN = constants.UV_DIRENT_UNKNOWN;

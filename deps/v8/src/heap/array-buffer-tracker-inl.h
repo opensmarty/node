@@ -5,22 +5,26 @@
 #ifndef V8_HEAP_ARRAY_BUFFER_TRACKER_INL_H_
 #define V8_HEAP_ARRAY_BUFFER_TRACKER_INL_H_
 
-#include "src/conversions-inl.h"
 #include "src/heap/array-buffer-tracker.h"
-#include "src/heap/heap.h"
-#include "src/heap/spaces.h"
-#include "src/objects.h"
+#include "src/heap/heap-inl.h"
+#include "src/heap/spaces-inl.h"
+#include "src/numbers/conversions-inl.h"
+#include "src/objects/js-array-buffer-inl.h"
+#include "src/objects/objects.h"
 
 namespace v8 {
 namespace internal {
 
-void ArrayBufferTracker::RegisterNew(Heap* heap, JSArrayBuffer* buffer) {
-  if (buffer->backing_store() == nullptr) return;
+void ArrayBufferTracker::RegisterNew(Heap* heap, JSArrayBuffer buffer) {
+  if (buffer.backing_store() == nullptr) return;
 
-  const size_t length = NumberToSize(buffer->byte_length());
-  Page* page = Page::FromAddress(buffer->address());
+  // ArrayBuffer tracking works only for small objects.
+  DCHECK(!heap->IsLargeObject(buffer));
+
+  const size_t length = buffer.byte_length();
+  Page* page = Page::FromHeapObject(buffer);
   {
-    base::LockGuard<base::Mutex> guard(page->mutex());
+    base::MutexGuard guard(page->mutex());
     LocalArrayBufferTracker* tracker = page->local_tracker();
     if (tracker == nullptr) {
       page->AllocateLocalTracker();
@@ -37,13 +41,13 @@ void ArrayBufferTracker::RegisterNew(Heap* heap, JSArrayBuffer* buffer) {
       ->AdjustAmountOfExternalAllocatedMemory(length);
 }
 
-void ArrayBufferTracker::Unregister(Heap* heap, JSArrayBuffer* buffer) {
-  if (buffer->backing_store() == nullptr) return;
+void ArrayBufferTracker::Unregister(Heap* heap, JSArrayBuffer buffer) {
+  if (buffer.backing_store() == nullptr) return;
 
-  Page* page = Page::FromAddress(buffer->address());
-  const size_t length = NumberToSize(buffer->byte_length());
+  Page* page = Page::FromHeapObject(buffer);
+  const size_t length = buffer.byte_length();
   {
-    base::LockGuard<base::Mutex> guard(page->mutex());
+    base::MutexGuard guard(page->mutex());
     LocalArrayBufferTracker* tracker = page->local_tracker();
     DCHECK_NOT_NULL(tracker);
     tracker->Remove(buffer, length);
@@ -61,7 +65,8 @@ void LocalArrayBufferTracker::Free(Callback should_free) {
   Isolate* isolate = page_->heap()->isolate();
   for (TrackingData::iterator it = array_buffers_.begin();
        it != array_buffers_.end();) {
-    JSArrayBuffer* buffer = reinterpret_cast<JSArrayBuffer*>(it->first);
+    // Unchecked cast because the map might already be dead at this point.
+    JSArrayBuffer buffer = JSArrayBuffer::unchecked_cast(it->first);
     const size_t length = it->second.length;
 
     if (should_free(buffer)) {
@@ -87,7 +92,7 @@ void ArrayBufferTracker::FreeDead(Page* page, MarkingState* marking_state) {
   // Callers need to ensure having the page lock.
   LocalArrayBufferTracker* tracker = page->local_tracker();
   if (tracker == nullptr) return;
-  tracker->Free([marking_state](JSArrayBuffer* buffer) {
+  tracker->Free([marking_state](JSArrayBuffer buffer) {
     return marking_state->IsWhite(buffer);
   });
   if (tracker->IsEmpty()) {
@@ -95,21 +100,25 @@ void ArrayBufferTracker::FreeDead(Page* page, MarkingState* marking_state) {
   }
 }
 
-void LocalArrayBufferTracker::Add(JSArrayBuffer* buffer, size_t length) {
+void LocalArrayBufferTracker::Add(JSArrayBuffer buffer, size_t length) {
   page_->IncrementExternalBackingStoreBytes(
       ExternalBackingStoreType::kArrayBuffer, length);
 
+  AddInternal(buffer, length);
+}
+
+void LocalArrayBufferTracker::AddInternal(JSArrayBuffer buffer, size_t length) {
   auto ret = array_buffers_.insert(
       {buffer,
-       {buffer->backing_store(), length, buffer->backing_store(),
-        buffer->is_wasm_memory()}});
+       {buffer.backing_store(), length, buffer.backing_store(),
+        buffer.is_wasm_memory()}});
   USE(ret);
   // Check that we indeed inserted a new value and did not overwrite an existing
   // one (which would be a bug).
   DCHECK(ret.second);
 }
 
-void LocalArrayBufferTracker::Remove(JSArrayBuffer* buffer, size_t length) {
+void LocalArrayBufferTracker::Remove(JSArrayBuffer buffer, size_t length) {
   page_->DecrementExternalBackingStoreBytes(
       ExternalBackingStoreType::kArrayBuffer, length);
 

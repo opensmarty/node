@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --harmony-locale
-
 // Make sure that locale exposes all required properties. Those not specified
 // should have undefined value.
 
@@ -24,7 +22,7 @@ assertEquals('buddhist', locale.calendar);
 assertEquals('phonebk', locale.collation);
 assertEquals('h23', locale.hourCycle);
 assertEquals('upper', locale.caseFirst);
-assertEquals('true', locale.numeric);
+assertEquals(true, locale.numeric);
 assertEquals('roman', locale.numberingSystem);
 // Not defined, expected to undefined.
 assertEquals(undefined, locale.currency);

@@ -14,8 +14,8 @@ const msg = 'Please add a skipIfEslintMissing() call to allow this test to ' +
 
 module.exports = function(context) {
   const missingCheckNodes = [];
-  var commonModuleNode = null;
-  var hasEslintCheck = false;
+  let commonModuleNode = null;
+  let hasEslintCheck = false;
 
   function testEslintUsage(context, node) {
     if (utils.isRequired(node, ['../../tools/node_modules/eslint'])) {
@@ -55,6 +55,6 @@ module.exports = function(context) {
   return {
     'CallExpression': (node) => testEslintUsage(context, node),
     'MemberExpression': (node) => checkMemberExpression(context, node),
-    'Program:exit': (node) => reportIfMissing(context, node)
+    'Program:exit': () => reportIfMissing(context)
   };
 };

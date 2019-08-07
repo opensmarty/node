@@ -1,3 +1,6 @@
+from __future__ import print_function
+
+import json
 import sys
 import errno
 import optparse
@@ -31,6 +34,7 @@ import nodedownload
 # imports in tools/
 sys.path.insert(0, 'tools')
 import getmoduleversion
+import getnapibuildversion
 from gyp_node import run_gyp
 
 # imports in deps/v8/tools/node
@@ -43,13 +47,15 @@ parser = optparse.OptionParser()
 valid_os = ('win', 'mac', 'solaris', 'freebsd', 'openbsd', 'linux',
             'android', 'aix', 'cloudabi')
 valid_arch = ('arm', 'arm64', 'ia32', 'mips', 'mipsel', 'mips64el', 'ppc',
-              'ppc64', 'x32','x64', 'x86', 'x86_64', 's390', 's390x')
+              'ppc64', 'x32','x64', 'x86', 'x86_64', 's390x')
 valid_arm_float_abi = ('soft', 'softfp', 'hard')
 valid_arm_fpu = ('vfp', 'vfpv3', 'vfpv3-d16', 'neon')
 valid_mips_arch = ('loongson', 'r1', 'r2', 'r6', 'rx')
 valid_mips_fpu = ('fp32', 'fp64', 'fpxx')
 valid_mips_float_abi = ('soft', 'hard')
 valid_intl_modes = ('none', 'small-icu', 'full-icu', 'system-icu')
+with open ('tools/icu/icu_versions.json') as f:
+  icu_versions = json.load(f)
 
 # create option groups
 shared_optgroup = optparse.OptionGroup(parser, "Shared libraries",
@@ -125,13 +131,6 @@ parser.add_option("--partly-static",
     help="Generate an executable with libgcc and libstdc++ libraries. This "
          "will not work on OSX when using the default compilation environment")
 
-parser.add_option("--enable-vtune-profiling",
-    action="store_true",
-    dest="enable_vtune_profiling",
-    help="Enable profiling support for Intel VTune profiler to profile "
-         "JavaScript code executed in nodejs. This feature is only available "
-         "for x32, x86, and x64 architectures.")
-
 parser.add_option("--enable-pgo-generate",
     action="store_true",
     dest="enable_pgo_generate",
@@ -168,6 +167,11 @@ parser.add_option('--openssl-fips',
     dest='openssl_fips',
     help='Build OpenSSL using FIPS canister .o file in supplied folder')
 
+parser.add_option('--openssl-is-fips',
+    action='store_true',
+    dest='openssl_is_fips',
+    help='specifies that the OpenSSL library is FIPS compatible')
+
 parser.add_option('--openssl-use-def-ca-store',
     action='store_true',
     dest='use_openssl_ca_store',
@@ -178,6 +182,11 @@ parser.add_option('--openssl-system-ca-path',
     dest='openssl_system_ca_path',
     help='Use the specified path to system CA (PEM format) in addition to '
          'the OpenSSL supplied CA store or compiled-in Mozilla CA copy.')
+
+parser.add_option('--experimental-http-parser',
+    action='store_true',
+    dest='experimental_http_parser',
+    help='(no-op)')
 
 shared_optgroup.add_option('--shared-http-parser',
     action='store_true',
@@ -387,6 +396,12 @@ parser.add_option('--with-etw',
     dest='with_etw',
     help='build with ETW (default is true on Windows)')
 
+parser.add_option('--use-largepages',
+    action='store_true',
+    dest='node_use_large_pages',
+    help='build with Large Pages support. This feature is supported only on Linux kernel' +
+         '>= 2.6.38 with Transparent Huge pages enabled and FreeBSD')
+
 intl_optgroup.add_option('--with-intl',
     action='store',
     dest='with_intl',
@@ -418,17 +433,19 @@ intl_optgroup.add_option('--with-icu-locales',
 intl_optgroup.add_option('--with-icu-source',
     action='store',
     dest='with_icu_source',
-    help='Intl mode: optional local path to icu/ dir, or path/URL of icu source archive.')
+    help='Intl mode: optional local path to icu/ dir, or path/URL of '
+        'the icu4c source archive. '
+        'v%d.x or later recommended.' % icu_versions['minimum_icu'])
 
 parser.add_option('--with-ltcg',
     action='store_true',
     dest='with_ltcg',
     help='Use Link Time Code Generation. This feature is only available on Windows.')
 
-parser.add_option('--with-pch',
+parser.add_option('--without-node-snapshot',
     action='store_true',
-    dest='with_pch',
-    help='Use Precompiled Headers (only available on Windows).')
+    dest='without_node_snapshot',
+    help='Turn off V8 snapshot integration. Currently experimental.')
 
 intl_optgroup.add_option('--download',
     action='store',
@@ -455,11 +472,6 @@ http2_optgroup.add_option('--debug-nghttp2',
 
 parser.add_option_group(http2_optgroup)
 
-parser.add_option('--with-perfctr',
-    action='store_true',
-    dest='with_perfctr',
-    help='build with performance counters (default is true on Windows)')
-
 parser.add_option('--without-dtrace',
     action='store_true',
     dest='without_dtrace',
@@ -475,10 +487,10 @@ parser.add_option('--without-npm',
     dest='without_npm',
     help='do not install the bundled npm (package manager)')
 
-parser.add_option('--without-perfctr',
+parser.add_option('--without-report',
     action='store_true',
-    dest='without_perfctr',
-    help='build without performance counters')
+    dest='without_report',
+    help='build without report')
 
 # Dummy option for backwards compatibility
 parser.add_option('--with-snapshot',
@@ -491,11 +503,12 @@ parser.add_option('--without-snapshot',
     dest='without_snapshot',
     help=optparse.SUPPRESS_HELP)
 
-parser.add_option('--code-cache-path',
-    action='store',
-    dest='code_cache_path',
-    help='Use a file generated by tools/generate_code_cache.js to compile the'
-         ' code cache for builtin modules into the binary')
+parser.add_option('--without-siphash',
+    action='store_true',
+    dest='without_siphash',
+    help=optparse.SUPPRESS_HELP)
+
+# End dummy list.
 
 parser.add_option('--without-ssl',
     action='store_true',
@@ -565,6 +578,12 @@ parser.add_option('--verbose',
     default=False,
     help='get more output from this script')
 
+parser.add_option('--v8-non-optimized-debug',
+    action='store_true',
+    dest='v8_non_optimized_debug',
+    default=False,
+    help='compile V8 with minimal optimizations and with runtime checks')
+
 # Create compile_commands.json in out/Debug and out/Release.
 parser.add_option('-C',
     action='store_true',
@@ -593,11 +612,15 @@ def warn(msg):
 # track if warnings occurred
 warn.warned = False
 
+def info(msg):
+  prefix = '\033[1m\033[32mINFO\033[0m' if os.isatty(1) else 'INFO'
+  print('%s: %s' % (prefix, msg))
+
 def print_verbose(x):
   if not options.verbose:
     return
   if type(x) is str:
-    print x
+    print(x)
   else:
     pprint.pprint(x, indent=2)
 
@@ -608,20 +631,33 @@ def b(value):
   else:
     return 'false'
 
+def B(value):
+  """Returns 1 if value is truthy, 0 otherwise."""
+  if value:
+    return 1
+  else:
+    return 0
+
 
 def pkg_config(pkg):
+  """Run pkg-config on the specified package
+  Returns ("-l flags", "-I flags", "-L flags", "version")
+  otherwise (None, None, None, None)"""
   pkg_config = os.environ.get('PKG_CONFIG', 'pkg-config')
+  args = []  # Print pkg-config warnings on first round.
   retval = ()
-  for flag in ['--libs-only-l', '--cflags-only-I', '--libs-only-L']:
+  for flag in ['--libs-only-l', '--cflags-only-I',
+               '--libs-only-L', '--modversion']:
+    args += [flag, pkg]
     try:
-      proc = subprocess.Popen(
-          shlex.split(pkg_config) + ['--silence-errors', flag, pkg],
-          stdout=subprocess.PIPE)
+      proc = subprocess.Popen(shlex.split(pkg_config) + args,
+                              stdout=subprocess.PIPE)
       val = proc.communicate()[0].strip()
     except OSError as e:
       if e.errno != errno.ENOENT: raise e  # Unexpected error.
-      return (None, None, None)  # No pkg-config/pkgconf installed.
+      return (None, None, None, None)  # No pkg-config/pkgconf installed.
     retval += (val,)
+    args = ['--silence-errors']
   return retval
 
 
@@ -637,8 +673,8 @@ def try_check_compiler(cc, lang):
 
   values = (proc.communicate()[0].split() + ['0'] * 7)[0:7]
   is_clang = values[0] == '1'
-  gcc_version = tuple(values[1:1+3])
-  clang_version = tuple(values[4:4+3])
+  gcc_version = tuple(map(int, values[1:1+3]))
+  clang_version = tuple(map(int, values[4:4+3])) if is_clang else None
 
   return (True, is_clang, clang_version, gcc_version)
 
@@ -674,7 +710,7 @@ def get_nasm_version(asm):
                             stdout=subprocess.PIPE)
   except OSError:
     warn('''No acceptable ASM compiler found!
-         Please make sure you have installed NASM from http://www.nasm.us
+         Please make sure you have installed NASM from https://www.nasm.us
          and refer BUILDING.md.''')
     return '0'
 
@@ -692,7 +728,7 @@ def get_llvm_version(cc):
 
 def get_xcode_version(cc):
   return get_version_helper(
-    cc, r"(^Apple LLVM version) ([0-9]+\.[0-9]+)")
+    cc, r"(^Apple (?:clang|LLVM) version) ([0-9]+\.[0-9]+)")
 
 def get_gas_version(cc):
   try:
@@ -725,7 +761,7 @@ def get_gas_version(cc):
 # quite prepared to go that far yet.
 def check_compiler(o):
   if sys.platform == 'win32':
-    if not options.openssl_no_asm:
+    if not options.openssl_no_asm and options.dest_cpu in ('x86', 'x64'):
       nasm_version = get_nasm_version('nasm')
       o['variables']['nasm_version'] = nasm_version
       if nasm_version == 0:
@@ -735,8 +771,8 @@ def check_compiler(o):
   ok, is_clang, clang_version, gcc_version = try_check_compiler(CXX, 'c++')
   if not ok:
     warn('failed to autodetect C++ compiler version (CXX=%s)' % CXX)
-  elif clang_version < (3, 4, 2) if is_clang else gcc_version < (4, 9, 4):
-    warn('C++ compiler too old, need g++ 4.9.4 or clang++ 3.4.2 (CXX=%s)' % CXX)
+  elif clang_version < (8, 0, 0) if is_clang else gcc_version < (6, 3, 0):
+    warn('C++ compiler too old, need g++ 6.3.0 or clang++ 8.0.0 (CXX=%s)' % CXX)
 
   ok, is_clang, clang_version, gcc_version = try_check_compiler(CC, 'c')
   if not ok:
@@ -831,7 +867,6 @@ def host_arch_cc():
     '__PPC64__'   : 'ppc64',
     '__PPC__'     : 'ppc64',
     '__x86_64__'  : 'x64',
-    '__s390__'    : 's390',
     '__s390x__'   : 's390x',
   }
 
@@ -840,8 +875,7 @@ def host_arch_cc():
   for i in matchup:
     if i in k and k[i] != '0':
       rtn = matchup[i]
-      if rtn != 's390':
-        break
+      break
 
   if rtn == 'mipsel' and '_LP64' in k:
     rtn = 'mips64el'
@@ -903,8 +937,7 @@ def gcc_version_ge(version_checked):
   for compiler in [(CC, 'c'), (CXX, 'c++')]:
     ok, is_clang, clang_version, compiler_version = \
       try_check_compiler(compiler[0], compiler[1])
-    compiler_version_num = tuple(map(int, compiler_version))
-    if is_clang or compiler_version_num < version_checked:
+    if is_clang or compiler_version < version_checked:
       return False
   return True
 
@@ -914,6 +947,7 @@ def configure_node(o):
     o['variables']['OS'] = 'android'
   o['variables']['node_prefix'] = options.prefix
   o['variables']['node_install_npm'] = b(not options.without_npm)
+  o['variables']['node_report'] = b(not options.without_report)
   o['default_configuration'] = 'Debug' if options.debug else 'Release'
 
   host_arch = host_arch_win() if os.name == 'nt' else host_arch_cc()
@@ -936,6 +970,11 @@ def configure_node(o):
   o['variables']['want_separate_host_toolset'] = int(
       cross_compiling and want_snapshots)
 
+  if not options.without_node_snapshot:
+    o['variables']['node_use_node_snapshot'] = b(not cross_compiling)
+  else:
+    o['variables']['node_use_node_snapshot'] = 'false'
+
   if target_arch == 'arm':
     configure_arm(o)
   elif target_arch in ('mips', 'mipsel', 'mips64el'):
@@ -943,15 +982,6 @@ def configure_node(o):
 
   if flavor == 'aix':
     o['variables']['node_target_type'] = 'static_library'
-
-  if target_arch in ('x86', 'x64', 'ia32', 'x32'):
-    o['variables']['node_enable_v8_vtunejit'] = b(options.enable_vtune_profiling)
-  elif options.enable_vtune_profiling:
-    raise Exception(
-       'The VTune profiler for JavaScript is only supported on x32, x86, and x64 '
-       'architectures.')
-  else:
-    o['variables']['node_enable_v8_vtunejit'] = 'false'
 
   if flavor != 'linux' and (options.enable_pgo_generate or options.enable_pgo_use):
     raise Exception(
@@ -1007,6 +1037,25 @@ def configure_node(o):
   else:
     o['variables']['node_use_dtrace'] = 'false'
 
+  if options.node_use_large_pages and not flavor in ('linux', 'freebsd'):
+    raise Exception(
+      'Large pages are supported only on Linux Systems.')
+  if options.node_use_large_pages and flavor in ('linux', 'freebsd'):
+    if options.shared or options.enable_static:
+      raise Exception(
+        'Large pages are supported only while creating node executable.')
+    if target_arch!="x64":
+      raise Exception(
+        'Large pages are supported only x64 platform.')
+    if flavor == 'linux':
+      # Example full version string: 2.6.32-696.28.1.el6.x86_64
+      FULL_KERNEL_VERSION=os.uname()[2]
+      KERNEL_VERSION=FULL_KERNEL_VERSION.split('-')[0]
+      if KERNEL_VERSION < "2.6.38" and flavor == 'linux':
+        raise Exception(
+          'Large pages need Linux kernel version >= 2.6.38')
+  o['variables']['node_use_large_pages'] = b(options.node_use_large_pages)
+
   if options.no_ifaddrs:
     o['defines'] += ['SUNOS_NO_IFADDRS']
 
@@ -1018,22 +1067,9 @@ def configure_node(o):
   else:
     o['variables']['node_use_etw'] = 'false'
 
-  # By default, enable Performance counters on Windows.
-  if flavor == 'win':
-    o['variables']['node_use_perfctr'] = b(not options.without_perfctr)
-  elif options.with_perfctr:
-    raise Exception('Performance counter is only supported on Windows.')
-  else:
-    o['variables']['node_use_perfctr'] = 'false'
-
   o['variables']['node_with_ltcg'] = b(options.with_ltcg)
   if flavor != 'win' and options.with_ltcg:
     raise Exception('Link Time Code Generation is only supported on Windows.')
-
-  if flavor == 'win':
-    o['variables']['node_use_pch'] = b(options.with_pch)
-  else:
-    o['variables']['node_use_pch'] = 'false'
 
   if options.tag:
     o['variables']['node_tag'] = '-' + options.tag
@@ -1056,8 +1092,9 @@ def configure_node(o):
     o['variables']['debug_nghttp2'] = 'false'
 
   o['variables']['node_no_browser_globals'] = b(options.no_browser_globals)
-  if options.code_cache_path:
-    o['variables']['node_code_cache_path'] = options.code_cache_path
+  # TODO(refack): fix this when implementing embedded code-cache when cross-compiling.
+  if o['variables']['want_separate_host_toolset'] == 0:
+    o['variables']['node_code_cache'] = 'yes' # For testing
   o['variables']['node_shared'] = b(options.shared)
   node_module_version = getmoduleversion.get_version()
 
@@ -1089,18 +1126,22 @@ def configure_node(o):
   else:
     o['variables']['node_target_type'] = 'executable'
 
+def configure_napi(output):
+  version = getnapibuildversion.get_napi_version()
+  output['variables']['napi_build_version'] = version
+
 def configure_library(lib, output):
   shared_lib = 'shared_' + lib
   output['variables']['node_' + shared_lib] = b(getattr(options, shared_lib))
 
   if getattr(options, shared_lib):
-    (pkg_libs, pkg_cflags, pkg_libpath) = pkg_config(lib)
+    (pkg_libs, pkg_cflags, pkg_libpath, pkg_modversion) = pkg_config(lib)
 
     if options.__dict__[shared_lib + '_includes']:
       output['include_dirs'] += [options.__dict__[shared_lib + '_includes']]
     elif pkg_cflags:
-      output['include_dirs'] += (
-          filter(None, map(str.strip, pkg_cflags.split('-I'))))
+      stripped_flags = [flag.strip() for flag in pkg_cflags.split('-I')]
+      output['include_dirs'] += [flag for flag in stripped_flags if flag]
 
     # libpath needs to be provided ahead libraries
     if options.__dict__[shared_lib + '_libpath']:
@@ -1116,7 +1157,7 @@ def configure_library(lib, output):
       output['libraries'] += [pkg_libpath]
 
     default_libs = getattr(options, shared_lib + '_libname')
-    default_libs = map('-l{0}'.format, default_libs.split(','))
+    default_libs = ['-l{0}'.format(l) for l in default_libs.split(',')]
 
     if default_libs:
       output['libraries'] += default_libs
@@ -1127,19 +1168,16 @@ def configure_library(lib, output):
 def configure_v8(o):
   o['variables']['v8_enable_gdbjit'] = 1 if options.gdb else 0
   o['variables']['v8_no_strict_aliasing'] = 1  # Work around compiler bugs.
-  o['variables']['v8_optimized_debug'] = 0  # Compile with -O0 in debug builds.
+  o['variables']['v8_optimized_debug'] = 0 if options.v8_non_optimized_debug else 1
   o['variables']['v8_random_seed'] = 0  # Use a random seed for hash tables.
   o['variables']['v8_promise_internal_field_count'] = 1 # Add internal field to promises for async hooks.
-  o['variables']['v8_use_snapshot'] = 'false' if options.without_snapshot else 'true'
+  o['variables']['v8_use_siphash'] = 0 if options.without_siphash else 1
+  o['variables']['v8_use_snapshot'] = 0 if options.without_snapshot else 1
   o['variables']['v8_trace_maps'] = 1 if options.trace_maps else 0
   o['variables']['node_use_v8_platform'] = b(not options.without_v8_platform)
   o['variables']['node_use_bundled_v8'] = b(not options.without_bundled_v8)
   o['variables']['force_dynamic_crt'] = 1 if options.shared else 0
   o['variables']['node_enable_d8'] = b(options.enable_d8)
-  # Unconditionally force typed arrays to allocate outside the v8 heap. This
-  # is to prevent memory pointers from being moved around that are returned by
-  # Buffer::Data().
-  o['variables']['v8_typed_array_max_size_in_heap'] = 0
   if options.enable_d8:
     o['variables']['test_isolation_mode'] = 'noop'  # Needed by d8.gyp.
   if options.without_bundled_v8 and options.enable_d8:
@@ -1158,8 +1196,11 @@ def configure_openssl(o):
   variables = o['variables']
   variables['node_use_openssl'] = b(not options.without_ssl)
   variables['node_shared_openssl'] = b(options.shared_openssl)
-  variables['openssl_no_asm'] = 1 if options.openssl_no_asm else 0
+  variables['openssl_is_fips'] = b(options.openssl_is_fips)
   variables['openssl_fips'] = ''
+
+  if options.openssl_no_asm:
+    variables['openssl_no_asm'] = 1
 
   if options.without_ssl:
     def without_ssl_error(option):
@@ -1204,7 +1245,7 @@ def configure_openssl(o):
   if options.openssl_no_asm and options.shared_openssl:
     error('--openssl-no-asm is incompatible with --shared-openssl')
 
-  if options.openssl_fips:
+  if options.openssl_fips or options.openssl_fips == '':
      error('FIPS is not supported in this version of Node.js')
 
   configure_library('openssl', o)
@@ -1226,7 +1267,6 @@ def configure_static(o):
 
 
 def write(filename, data):
-  filename = filename
   print_verbose('creating %s' % filename)
   with open(filename, 'w+') as f:
     f.write(data)
@@ -1247,42 +1287,45 @@ def glob_to_var(dir_base, dir_sub, patch_dir):
           patchfile = '%s/%s/%s' % (dir_base, patch_dir, file)
           if os.path.isfile(patchfile):
             srcfile = '%s/%s' % (patch_dir, file)
-            warn('Using floating patch "%s" from "%s"' % (patchfile, dir_base))
+            info('Using floating patch "%s" from "%s"' % (patchfile, dir_base))
         list.append(srcfile)
     break
   return list
 
 def configure_intl(o):
-  icus = [
-    {
-      'url': 'https://sourceforge.net/projects/icu/files/ICU4C/62.1/icu4c-62_1-src.zip',
-      'md5': '408854f7b9b58311b68fab4b4dfc80be',
-    },
-  ]
   def icu_download(path):
+    depFile = 'tools/icu/current_ver.dep';
+    with open(depFile) as f:
+      icus = json.load(f)
     # download ICU, if needed
     if not os.access(options.download_path, os.W_OK):
       error('''Cannot write to desired download path.
         Either create it or verify permissions.''')
+    attemptdownload = nodedownload.candownload(auto_downloads, "icu")
     for icu in icus:
       url = icu['url']
-      md5 = icu['md5']
+      (expectHash, hashAlgo, allAlgos) = nodedownload.findHash(icu)
+      if not expectHash:
+        error('''Could not find a hash to verify ICU download.
+          %s may be incorrect.
+          For the entry %s,
+          Expected one of these keys: %s''' % (depFile, url, ' '.join(allAlgos)))
       local = url.split('/')[-1]
       targetfile = os.path.join(options.download_path, local)
       if not os.path.isfile(targetfile):
-        if nodedownload.candownload(auto_downloads, "icu"):
+        if attemptdownload:
           nodedownload.retrievefile(url, targetfile)
       else:
         print('Re-using existing %s' % targetfile)
       if os.path.isfile(targetfile):
-        print('Checking file integrity with MD5:\r')
-        gotmd5 = nodedownload.md5sum(targetfile)
-        print('MD5:      %s  %s' % (gotmd5, targetfile))
-        if (md5 == gotmd5):
+        print('Checking file integrity with %s:\r' % hashAlgo)
+        gotHash = nodedownload.checkHash(targetfile, hashAlgo)
+        print('%s:      %s  %s' % (hashAlgo, gotHash, targetfile))
+        if (expectHash == gotHash):
           return targetfile
         else:
-          error('Expected: %s      *MISMATCH*' % md5)
-          error('\n ** Corrupted ZIP? Delete %s to retry download.\n' % targetfile)
+          warn('Expected: %s      *MISMATCH*' % expectHash)
+          warn('\n ** Corrupted ZIP? Delete %s to retry download.\n' % targetfile)
     return None
   icu_config = {
     'variables': {}
@@ -1329,17 +1372,23 @@ def configure_intl(o):
     # ICU from pkg-config.
     o['variables']['v8_enable_i18n_support'] = 1
     pkgicu = pkg_config('icu-i18n')
-    if pkgicu[0] is None:
+    if not pkgicu[0]:
       error('''Could not load pkg-config data for "icu-i18n".
        See above errors or the README.md.''')
-    (libs, cflags, libpath) = pkgicu
+    (libs, cflags, libpath, icuversion) = pkgicu
+    icu_ver_major = icuversion.split('.')[0]
+    o['variables']['icu_ver_major'] = icu_ver_major
+    if int(icu_ver_major) < icu_versions['minimum_icu']:
+      error('icu4c v%s is too old, v%d.x or later is required.' %
+            (icuversion, icu_versions['minimum_icu']))
     # libpath provides linker path which may contain spaces
     if libpath:
       o['libraries'] += [libpath]
     # safe to split, cannot contain spaces
     o['libraries'] += libs.split()
     if cflags:
-      o['include_dirs'] += filter(None, map(str.strip, cflags.split('-I')))
+      stripped_flags = [flag.strip() for flag in cflags.split('-I')]
+      o['include_dirs'] += [flag for flag in stripped_flags if flag]
     # use the "system" .gyp
     o['variables']['icu_gyp_path'] = 'tools/icu/icu-system.gyp'
     return
@@ -1426,11 +1475,12 @@ def configure_intl(o):
   # ICU source dir relative to tools/icu (for .gyp file)
   o['variables']['icu_path'] = icu_full_path
   if not os.path.isdir(icu_full_path):
-    warn('* ECMA-402 (Intl) support didn\'t find ICU in %s..' % icu_full_path)
     # can we download (or find) a zipfile?
     localzip = icu_download(icu_full_path)
     if localzip:
       nodedownload.unpack(localzip, icu_parent_path)
+    else:
+      warn('* ECMA-402 (Intl) support didn\'t find ICU in %s..' % icu_full_path)
   if not os.path.isdir(icu_full_path):
     error('''Cannot build Intl without ICU in %s.
        Fix, or disable with "--with-intl=none"''' % icu_full_path)
@@ -1450,6 +1500,9 @@ def configure_intl(o):
       icu_ver_major = m.group(1)
   if not icu_ver_major:
     error('Could not read U_ICU_VERSION_SHORT version from %s' % uvernum_h)
+  elif int(icu_ver_major) < icu_versions['minimum_icu']:
+    error('icu4c v%s.x is too old, v%d.x or later is required.' %
+          (icu_ver_major, icu_versions['minimum_icu']))
   icu_endianness = sys.byteorder[0];
   o['variables']['icu_ver_major'] = icu_ver_major
   o['variables']['icu_endianness'] = icu_endianness
@@ -1556,6 +1609,7 @@ if (options.dest_os):
 flavor = GetFlavor(flavor_params)
 
 configure_node(output)
+configure_napi(output)
 configure_library('zlib', output)
 configure_library('http_parser', output)
 configure_library('libuv', output)
@@ -1574,6 +1628,7 @@ configure_inspector(output)
 # move everything else to target_defaults
 variables = output['variables']
 del output['variables']
+variables['is_debug'] = B(options.debug)
 
 # make_global_settings for special FIPS linking
 # should not be used to compile modules in node-gyp
@@ -1607,25 +1662,37 @@ write('config.status', '#!/bin/sh\nset -x\nexec ./configure ' +
       ' '.join([pipes.quote(arg) for arg in original_argv]) + '\n')
 os.chmod('config.status', 0o775)
 
+
 config = {
   'BUILDTYPE': 'Debug' if options.debug else 'Release',
-  'PYTHON': sys.executable,
   'NODE_TARGET_TYPE': variables['node_target_type'],
 }
+
+# Not needed for trivial case. Useless when it's a win32 path.
+if sys.executable != 'python' and ':\\' not in sys.executable:
+  config['PYTHON'] = sys.executable
 
 if options.prefix:
   config['PREFIX'] = options.prefix
 
-config = '\n'.join(map('='.join, config.iteritems())) + '\n'
+if options.use_ninja:
+  config['BUILD_WITH'] = 'ninja'
+
+config_lines = ['='.join((k,v)) for k,v in config.items()]
+# Add a blank string to get a blank line at the end.
+config_lines += ['']
+config_str = '\n'.join(config_lines)
 
 # On Windows there's no reason to search for a different python binary.
 bin_override = None if sys.platform == 'win32' else make_bin_override()
 if bin_override:
-  config = 'export PATH:=' + bin_override + ':$(PATH)\n' + config
+  config_str = 'export PATH:=' + bin_override + ':$(PATH)\n' + config_str
 
-write('config.mk', do_not_edit + config)
+write('config.mk', do_not_edit + config_str)
 
-gyp_args = ['--no-parallel']
+
+
+gyp_args = ['--no-parallel', '-Dconfiguring_node=1']
 
 if options.use_ninja:
   gyp_args += ['-f', 'ninja']
@@ -1645,3 +1712,4 @@ if warn.warned and not options.verbose:
 
 print_verbose("running: \n    " + " ".join(['python', 'tools/gyp_node.py'] + gyp_args))
 run_gyp(gyp_args)
+info('configure completed successfully')

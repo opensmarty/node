@@ -107,12 +107,7 @@ class ModuleDescriptor : public ZoneObject {
           module_request(-1),
           cell_index(0) {}
 
-    // (De-)serialization support.
-    // Note that the location value is not preserved as it's only needed by the
-    // parser.  (A Deserialize'd entry has an invalid location.)
     Handle<ModuleInfoEntry> Serialize(Isolate* isolate) const;
-    static Entry* Deserialize(Isolate* isolate, AstValueFactory* avfactory,
-                              Handle<ModuleInfoEntry> entry);
   };
 
   enum CellIndexKind { kInvalid, kExport, kImport };
@@ -126,16 +121,16 @@ class ModuleDescriptor : public ZoneObject {
 
   // Custom content-based comparer for the below maps, to keep them stable
   // across parses.
-  struct AstRawStringComparer {
+  struct V8_EXPORT_PRIVATE AstRawStringComparer {
     bool operator()(const AstRawString* lhs, const AstRawString* rhs) const;
   };
 
-  typedef ZoneMap<const AstRawString*, ModuleRequest, AstRawStringComparer>
-      ModuleRequestMap;
-  typedef ZoneMultimap<const AstRawString*, Entry*, AstRawStringComparer>
-      RegularExportMap;
-  typedef ZoneMap<const AstRawString*, Entry*, AstRawStringComparer>
-      RegularImportMap;
+  using ModuleRequestMap =
+      ZoneMap<const AstRawString*, ModuleRequest, AstRawStringComparer>;
+  using RegularExportMap =
+      ZoneMultimap<const AstRawString*, Entry*, AstRawStringComparer>;
+  using RegularImportMap =
+      ZoneMap<const AstRawString*, Entry*, AstRawStringComparer>;
 
   // Module requests.
   const ModuleRequestMap& module_requests() const { return module_requests_; }
@@ -191,8 +186,6 @@ class ModuleDescriptor : public ZoneObject {
 
   Handle<FixedArray> SerializeRegularExports(Isolate* isolate,
                                              Zone* zone) const;
-  void DeserializeRegularExports(Isolate* isolate, AstValueFactory* avfactory,
-                                 Handle<ModuleInfo> module_info);
 
  private:
   ModuleRequestMap module_requests_;

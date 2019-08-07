@@ -12,9 +12,9 @@ const initHooks = require('./init-hooks');
 const util = require('util');
 
 const sleep = util.promisify(setTimeout);
-// either 'inited' or 'resolved'
+// Either 'inited' or 'resolved'
 const promisesInitState = new Map();
-// either 'before' or 'after' AND asyncId must be present in the other map
+// Either 'before' or 'after' AND asyncId must be present in the other map
 const promisesExecutionState = new Map();
 
 const hooks = initHooks({
@@ -26,7 +26,7 @@ const hooks = initHooks({
 });
 hooks.enable();
 
-function oninit(asyncId, type, triggerAsyncId, resource) {
+function oninit(asyncId, type) {
   if (type === 'PROMISE') {
     promisesInitState.set(asyncId, 'inited');
   }

@@ -5,7 +5,7 @@
 const common = require('../common.js');
 const util = require('util');
 
-// if there are --dur=N and --len=N args, then
+// If there are --dur=N and --len=N args, then
 // run the function with those settings.
 // if not, then queue up a bunch of child processes.
 const bench = common.createBenchmark(main, {
@@ -15,10 +15,12 @@ const bench = common.createBenchmark(main, {
 }, { flags: [ '--expose-internals', '--no-warnings' ] });
 
 function main({ dur, len, type }) {
-  const { internalBinding } = require('internal/test/binding');
-  const { TCP, constants: TCPConstants } = process.binding('tcp_wrap');
-  const { TCPConnectWrap } = process.binding('tcp_wrap');
-  const { WriteWrap } = internalBinding('stream_wrap');
+  const {
+    TCP,
+    TCPConnectWrap,
+    constants: TCPConstants
+  } = common.binding('tcp_wrap');
+  const { WriteWrap } = common.binding('stream_wrap');
   const PORT = common.PORT;
 
   const serverHandle = new TCP(TCPConstants.SERVER);
@@ -34,25 +36,25 @@ function main({ dur, len, type }) {
     if (err)
       fail(err, 'connect');
 
-    // the meat of the benchmark is right here:
+    // The meat of the benchmark is right here:
     bench.start();
     var bytes = 0;
 
-    setTimeout(function() {
+    setTimeout(() => {
       // report in Gb/sec
       bench.end((bytes * 8) / (1024 * 1024 * 1024));
       process.exit(0);
     }, dur * 1000);
 
-    clientHandle.onread = function(nread, buffer) {
-      // we're not expecting to ever get an EOF from the client.
-      // just lots of data forever.
-      if (nread < 0)
-        fail(nread, 'read');
+    clientHandle.onread = function(buffer) {
+      // We're not expecting to ever get an EOF from the client.
+      // Just lots of data forever.
+      if (!buffer)
+        fail('read');
 
-      // don't slice the buffer.  the point of this is to isolate, not
+      // Don't slice the buffer. The point of this is to isolate, not
       // simulate real traffic.
-      bytes += buffer.length;
+      bytes += buffer.byteLength;
     };
 
     clientHandle.readStart();

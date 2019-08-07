@@ -15,8 +15,8 @@ const msg = 'Please add a skipIfInspectorDisabled() call to allow this ' +
 
 module.exports = function(context) {
   const missingCheckNodes = [];
-  var commonModuleNode = null;
-  var hasInspectorCheck = false;
+  let commonModuleNode = null;
+  let hasInspectorCheck = false;
 
   function testInspectorUsage(context, node) {
     if (utils.isRequired(node, ['inspector'])) {
@@ -56,6 +56,6 @@ module.exports = function(context) {
   return {
     'CallExpression': (node) => testInspectorUsage(context, node),
     'MemberExpression': (node) => checkMemberExpression(context, node),
-    'Program:exit': (node) => reportIfMissing(context, node)
+    'Program:exit': () => reportIfMissing(context)
   };
 };

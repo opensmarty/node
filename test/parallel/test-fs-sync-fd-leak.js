@@ -27,7 +27,7 @@ const fs = require('fs');
 const { internalBinding } = require('internal/test/binding');
 const { UV_EBADF } = internalBinding('uv');
 
-// ensure that (read|write|append)FileSync() closes the file descriptor
+// Ensure that (read|write|append)FileSync() closes the file descriptor
 fs.openSync = function() {
   return 42;
 };
@@ -42,7 +42,7 @@ fs.writeSync = function() {
   throw new Error('BAM');
 };
 
-process.binding('fs').fstat = function(fd, bigint, _, ctx) {
+internalBinding('fs').fstat = function(fd, bigint, _, ctx) {
   ctx.errno = UV_EBADF;
   ctx.syscall = 'fstat';
 };

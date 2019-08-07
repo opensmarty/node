@@ -5,6 +5,34 @@ The intended audience is those who have been authorized by the Node.js
 Foundation Technical Steering Committee (TSC) to create, promote, and sign
 official release builds for Node.js, hosted on <https://nodejs.org/>.
 
+## Table of Contents
+
+* [Who can make a release?](#who-can-make-a-release)
+  * [1. Jenkins Release Access](#1-jenkins-release-access)
+  * [2. <nodejs.org> Access](#2-nodejsorg-access)
+  * [3. A Publicly Listed GPG Key](#3-a-publicly-listed-gpg-key)
+* [How to create a release](#how-to-create-a-release)
+  * [0. Pre-release steps](#0-pre-release-steps)
+  * [1. Update the staging branch](#1-update-the-staging-branch)
+  * [2. Create a new branch for the release](#2-create-a-new-branch-for-the-release)
+  * [3. Update `src/node_version.h`](#3-update-srcnode_versionh)
+  * [4. Update the Changelog](#4-update-the-changelog)
+  * [5. Create Release Commit](#5-create-release-commit)
+  * [6. Propose Release on GitHub](#6-propose-release-on-github)
+  * [7. Ensure that the Release Branch is Stable](#7-ensure-that-the-release-branch-is-stable)
+  * [8. Produce a Nightly Build _(optional)_](#8-produce-a-nightly-build-optional)
+  * [9. Produce Release Builds](#9-produce-release-builds)
+  * [10. Test the Build](#10-test-the-build)
+  * [11. Tag and Sign the Release Commit](#11-tag-and-sign-the-release-commit)
+  * [12. Set Up For the Next Release](#12-set-up-for-the-next-release)
+  * [13. Promote and Sign the Release Builds](#13-promote-and-sign-the-release-builds)
+  * [14. Check the Release](#14-check-the-release)
+  * [15. Create a Blog Post](#15-create-a-blog-post)
+  * [16. Create the release on GitHub](#16-create-the-release-on-github)
+  * [17. Cleanup](#17-cleanup)
+  * [18. Announce](#18-announce)
+  * [19. Celebrate](#19-celebrate)
+
 ## Who can make a release?
 
 Release authorization is given by the Node.js TSC. Once authorized, an
@@ -110,7 +138,22 @@ $ git reset --hard upstream/v1.x-staging
 ```
 
 If the staging branch is not up to date relative to `master`, bring the
-appropriate commits into it. To determine the relevant commits, use
+appropriate PRs and commits into it.
+
+Go through PRs with the label `vN.x`. e.g. [PRs with the `v8.x` label](https://github.com/nodejs/node/pulls?q=is%3Apr+is%3Aopen+sort%3Aupdated-desc+label%3Av8.x).
+
+For each PR:
+- Run or check that there is a passing CI.
+- Check approvals (you can approve yourself).
+- Check that the commit metadata was not changed from the `master` commit.
+- If there are merge conflicts, ask the PR author to rebase.
+Simple conflicts can be resolved when landing.
+
+When landing the PR add the `Backport-PR-URL:` line to each commit. Close the
+backport PR with `Landed in ...`. Update the label on the original PR from
+`backport-requested-vN.x` to `backported-to-vN.x`.
+
+To determine the relevant commits, use
 [`branch-diff`](https://github.com/nodejs/branch-diff). The tool is available on
 npm and should be installed globally or run with `npx`. It depends on our commit
 metadata, as well as the GitHub labels such as `semver-minor` and
@@ -124,14 +167,24 @@ For a list of commits that could be landed in a patch release on v1.x:
 $ branch-diff v1.x-staging master --exclude-label=semver-major,semver-minor,dont-land-on-v1.x,backport-requested-v1.x --filter-release --format=simple
 ```
 
-Carefully review the list of commits looking for errors (incorrect `PR-URL`,
-incorrect semver, etc.). Commits labeled as `semver-minor` or `semver-major`
-should only be cherry-picked when appropriate for the type of release being
-made. Previous release commits and version bumps do not need to be
+Previous release commits and version bumps do not need to be
 cherry-picked.
 
-If commits were cherry-picked in this step, push to the staging branch to keep
-it up-to-date.
+Carefully review the list of commits:
+- Checking for errors (incorrect `PR-URL`)
+- Checking semver status - Commits labeled as `semver-minor` or `semver-major`
+should only be cherry-picked when appropriate for the type of release being
+made.
+- If you think it's risky so should wait for a while, add the `baking-for-lts`
+   tag.
+
+When cherry-picking commits, if there are simple conflicts you can resolve
+them. Otherwise, add the `backport-requested-vN.x` label to the original PR
+and post a comment stating that it does not land cleanly and will require a
+backport PR.
+
+If commits were cherry-picked in this step, check that the test still pass and
+push to the staging branch to keep it up-to-date.
 
 ```console
 $ git push upstream v1.x-staging
@@ -182,7 +235,13 @@ and also if there are non-trivial API changes. The rules are not yet strictly
 defined, so if in doubt, please confer with someone that will have a more
 informed perspective, such as a member of the NAN team.
 
-*Note*: It is current TSC policy to bump major version when ABI changes. If you
+A registry of currently used `NODE_MODULE_VERSION` values is maintained at
+<https://github.com/nodejs/node/blob/master/doc/abi_version_registry.json>.
+When bumping `NODE_MODULE_VERSION`, you should choose a new value not listed
+in the registry. Also include a change to the registry in your commit to
+reflect the newly used value.
+
+It is current TSC policy to bump major version when ABI changes. If you
 see a need to bump `NODE_MODULE_VERSION` then you should consult the TSC.
 Commits may need to be reverted or a major version bump may need to happen.
 
@@ -197,7 +256,7 @@ Collect a formatted list of commits since the last release. Use
 $ changelog-maker --group
 ```
 
-Note that changelog-maker counts commits since the last tag and if the last tag
+`changelog-maker` counts commits since the last tag and if the last tag
 in the repository was not on the current branch you may have to supply a
 `--start-ref` argument:
 
@@ -263,12 +322,12 @@ doc/api/*.md`, and substitute this node version with `sed -i
 "s/REPLACEME/$VERSION/g" doc/api/*.md` or `perl -pi -e "s/REPLACEME/$VERSION/g"
 doc/api/*.md`.
 
-*Note*: `$VERSION` should be prefixed with a `v`.
+`$VERSION` should be prefixed with a `v`.
 
 If this release includes any new deprecations it is necessary to ensure that
 those are assigned a proper static deprecation code. These are listed in the
 docs (see `doc/api/deprecations.md`) and in the source as `DEP00XX`. The code
-must be assigned a number (e.g. `DEP0012`). Note that this assignment should
+must be assigned a number (e.g. `DEP0012`). This assignment should
 occur when the PR is landed, but a check will be made when the release build is
 run.
 
@@ -280,6 +339,21 @@ release. When committing these to git, use the following message format:
 
 ```txt
 YYYY-MM-DD, Version x.y.z (Release Type)
+
+Notable changes:
+
+* Copy the notable changes list here, reformatted for plain-text
+```
+
+For security releases, begin the commit message with the phrase
+`This is a security release.` to allow the
+[distribution indexer](https://github.com/nodejs/nodejs-dist-indexer) to
+identify it as such:
+
+```txt
+YYYY-MM-DD, Version x.y.z (Release Type)
+
+This is a security release.
 
 Notable changes:
 
@@ -420,6 +494,9 @@ following command:
 $ git push <remote> <vx.y.z>
 ```
 
+*Note*: Please do not push the tag unless you are ready to complete the
+remainder of the release steps.
+
 ### 12. Set Up For the Next Release
 
 On release proposal branch, edit `src/node_version.h` again and:
@@ -455,8 +532,8 @@ Cherry-pick the release commit to `master`. After cherry-picking, edit
 previously on `master`. `NODE_VERSION_IS_RELEASE` should be `0`. **Do not**
 cherry-pick the "Working on vx.y.z" commit to `master`.
 
-Run `make lint-md-build; make lint` before pushing to `master`, to make sure the
-Changelog formatting passes the lint rules on `master`.
+Run `make lint` before pushing to `master`, to make sure the Changelog
+formatting passes the lint rules on `master`.
 
 ### 13. Promote and Sign the Release Builds
 
@@ -507,7 +584,7 @@ release, you should re-run `tools/release.sh` after the ARM builds have
 finished. That will move the ARM artifacts into the correct location. You will
 be prompted to re-sign SHASUMS256.txt.
 
-*Note*: It is possible to only sign a release by running `./tools/release.sh -s
+It is possible to only sign a release by running `./tools/release.sh -s
 vX.Y.Z`.
 
 ### 14. Check the Release
@@ -553,7 +630,19 @@ This script will use the promoted builds and changelog to generate the post. Run
 - Changes to `master` on the nodejs.org repo will trigger a new build of
   nodejs.org so your changes should appear in a few minutes after pushing.
 
-### 16. Announce
+### 16. Create the release on GitHub
+
+- Go to the [New release page](https://github.com/nodejs/node/releases/new).
+- Select the tag version you pushed earlier.
+- For release title, copy the title from the changelog.
+- For the description, copy the rest of the changelog entry.
+- Click on the "Publish release" button.
+
+### 17. Cleanup
+
+Close your release proposal PR and delete the proposal branch.
+
+### 18. Announce
 
 The nodejs.org website will automatically rebuild and include the new version.
 To announce the build on Twitter through the official @nodejs account, email
@@ -568,17 +657,7 @@ To ensure communication goes out with the timing of the blog post, please allow
 will be shared with the community in the email to coordinate these
 announcements.
 
-### 17. Create the release on GitHub
-
-- Got to the [New release page](https://github.com/nodejs/node/releases/new).
-- Select the tag version you pushed earlier.
-- For release title, copy the title from the changelog.
-- For the description, copy the rest of the changelog entry.
-- Click on the "Publish release" button.
-
-### 18. Cleanup
-
-Close your release proposal PR and delete the proposal branch.
+Ping the IRC ops and the other [Partner Communities] liaisons.
 
 ### 19. Celebrate
 
@@ -587,4 +666,5 @@ _In whatever form you do this..._
 [CI lockdown procedure]: https://github.com/nodejs/build/blob/master/doc/jenkins-guide.md#restricting-access-for-security-releases
 [Build issue tracker]: https://github.com/nodejs/build/issues/new
 [nodejs.org release-post.js script]: https://github.com/nodejs/nodejs.org/blob/master/scripts/release-post.js
+[Partner Communities]: https://github.com/nodejs/community-committee/blob/master/governance/PARTNER_COMMUNITIES.md
 [webchat.freenode.net]: https://webchat.freenode.net/

@@ -14,7 +14,11 @@ PerIsolateOptions* PerProcessOptions::get_per_isolate_options() {
 }
 
 DebugOptions* EnvironmentOptions::get_debug_options() {
-  return debug_options.get();
+  return &debug_options_;
+}
+
+const DebugOptions& EnvironmentOptions::debug_options() const {
+  return debug_options_;
 }
 
 EnvironmentOptions* PerIsolateOptions::get_per_env_options() {
@@ -24,8 +28,8 @@ EnvironmentOptions* PerIsolateOptions::get_per_env_options() {
 namespace options_parser {
 
 template <typename Options>
-void OptionsParser<Options>::AddOption(const std::string& name,
-                                       const std::string& help_text,
+void OptionsParser<Options>::AddOption(const char* name,
+                                       const char* help_text,
                                        bool Options::* field,
                                        OptionEnvvarSettings env_setting) {
   options_.emplace(name,
@@ -36,8 +40,21 @@ void OptionsParser<Options>::AddOption(const std::string& name,
 }
 
 template <typename Options>
-void OptionsParser<Options>::AddOption(const std::string& name,
-                                       const std::string& help_text,
+void OptionsParser<Options>::AddOption(const char* name,
+                                       const char* help_text,
+                                       uint64_t Options::* field,
+                                       OptionEnvvarSettings env_setting) {
+  options_.emplace(
+      name,
+      OptionInfo{kUInteger,
+                 std::make_shared<SimpleOptionField<uint64_t>>(field),
+                 env_setting,
+                 help_text});
+}
+
+template <typename Options>
+void OptionsParser<Options>::AddOption(const char* name,
+                                       const char* help_text,
                                        int64_t Options::* field,
                                        OptionEnvvarSettings env_setting) {
   options_.emplace(
@@ -49,8 +66,8 @@ void OptionsParser<Options>::AddOption(const std::string& name,
 }
 
 template <typename Options>
-void OptionsParser<Options>::AddOption(const std::string& name,
-                                       const std::string& help_text,
+void OptionsParser<Options>::AddOption(const char* name,
+                                       const char* help_text,
                                        std::string Options::* field,
                                        OptionEnvvarSettings env_setting) {
   options_.emplace(
@@ -63,8 +80,8 @@ void OptionsParser<Options>::AddOption(const std::string& name,
 
 template <typename Options>
 void OptionsParser<Options>::AddOption(
-    const std::string& name,
-    const std::string& help_text,
+    const char* name,
+    const char* help_text,
     std::vector<std::string> Options::* field,
     OptionEnvvarSettings env_setting) {
   options_.emplace(name, OptionInfo {
@@ -76,8 +93,8 @@ void OptionsParser<Options>::AddOption(
 }
 
 template <typename Options>
-void OptionsParser<Options>::AddOption(const std::string& name,
-                                       const std::string& help_text,
+void OptionsParser<Options>::AddOption(const char* name,
+                                       const char* help_text,
                                        HostPort Options::* field,
                                        OptionEnvvarSettings env_setting) {
   options_.emplace(
@@ -89,16 +106,16 @@ void OptionsParser<Options>::AddOption(const std::string& name,
 }
 
 template <typename Options>
-void OptionsParser<Options>::AddOption(const std::string& name,
-                                       const std::string& help_text,
+void OptionsParser<Options>::AddOption(const char* name,
+                                       const char* help_text,
                                        NoOp no_op_tag,
                                        OptionEnvvarSettings env_setting) {
   options_.emplace(name, OptionInfo{kNoOp, nullptr, env_setting, help_text});
 }
 
 template <typename Options>
-void OptionsParser<Options>::AddOption(const std::string& name,
-                                       const std::string& help_text,
+void OptionsParser<Options>::AddOption(const char* name,
+                                       const char* help_text,
                                        V8Option v8_option_tag,
                                        OptionEnvvarSettings env_setting) {
   options_.emplace(name,
@@ -106,43 +123,43 @@ void OptionsParser<Options>::AddOption(const std::string& name,
 }
 
 template <typename Options>
-void OptionsParser<Options>::AddAlias(const std::string& from,
-                                      const std::string& to) {
+void OptionsParser<Options>::AddAlias(const char* from,
+                                      const char* to) {
   aliases_[from] = { to };
 }
 
 template <typename Options>
-void OptionsParser<Options>::AddAlias(const std::string& from,
+void OptionsParser<Options>::AddAlias(const char* from,
                                       const std::vector<std::string>& to) {
   aliases_[from] = to;
 }
 
 template <typename Options>
 void OptionsParser<Options>::AddAlias(
-    const std::string& from,
+    const char* from,
     const std::initializer_list<std::string>& to) {
   AddAlias(from, std::vector<std::string>(to));
 }
 
 template <typename Options>
-void OptionsParser<Options>::Implies(const std::string& from,
-                                     const std::string& to) {
+void OptionsParser<Options>::Implies(const char* from,
+                                     const char* to) {
   auto it = options_.find(to);
   CHECK_NE(it, options_.end());
   CHECK_EQ(it->second.type, kBoolean);
   implications_.emplace(from, Implication {
-    std::static_pointer_cast<OptionField<bool>>(it->second.field), true
+    it->second.field, true
   });
 }
 
 template <typename Options>
-void OptionsParser<Options>::ImpliesNot(const std::string& from,
-                                        const std::string& to) {
+void OptionsParser<Options>::ImpliesNot(const char* from,
+                                        const char* to) {
   auto it = options_.find(to);
   CHECK_NE(it, options_.end());
   CHECK_EQ(it->second.type, kBoolean);
   implications_.emplace(from, Implication {
-    std::static_pointer_cast<OptionField<bool>>(it->second.field), false
+    it->second.field, false
   });
 }
 
@@ -188,8 +205,7 @@ auto OptionsParser<Options>::Convert(
     typename OptionsParser<ChildOptions>::Implication original,
     ChildOptions* (Options::* get_child)()) {
   return Implication {
-    std::static_pointer_cast<OptionField<bool>>(
-        Convert(original.target_field, get_child)),
+    Convert(original.target_field, get_child),
     original.target_value
   };
 }
@@ -197,15 +213,15 @@ auto OptionsParser<Options>::Convert(
 template <typename Options>
 template <typename ChildOptions>
 void OptionsParser<Options>::Insert(
-    OptionsParser<ChildOptions>* child_options_parser,
+    const OptionsParser<ChildOptions>& child_options_parser,
     ChildOptions* (Options::* get_child)()) {
-  aliases_.insert(child_options_parser->aliases_.begin(),
-                  child_options_parser->aliases_.end());
+  aliases_.insert(std::begin(child_options_parser.aliases_),
+                  std::end(child_options_parser.aliases_));
 
-  for (const auto& pair : child_options_parser->options_)
+  for (const auto& pair : child_options_parser.options_)
     options_.emplace(pair.first, Convert(pair.second, get_child));
 
-  for (const auto& pair : child_options_parser->implications_)
+  for (const auto& pair : child_options_parser.implications_)
     implications_.emplace(pair.first, Convert(pair.second, get_child));
 }
 
@@ -253,7 +269,7 @@ struct ArgsInfo {
       // on the command line (i.e. not generated through alias expansion).
       // '--' is a special case here since its purpose is to end `exec_argv`,
       // which is why we do not include it.
-      if (exec_args != nullptr && first() != "--")
+      if (exec_args != nullptr && ret != "--")
         exec_args->push_back(ret);
       underlying->erase(underlying->begin() + 1);
     } else {
@@ -270,7 +286,7 @@ void OptionsParser<Options>::Parse(
     std::vector<std::string>* const v8_args,
     Options* const options,
     OptionEnvvarSettings required_env_settings,
-    std::string* const error) {
+    std::vector<std::string>* const errors) const {
   ArgsInfo args(orig_args, exec_args);
 
   // The first entry is the process name. Make sure it ends up in the V8 argv,
@@ -279,7 +295,7 @@ void OptionsParser<Options>::Parse(
   if (v8_args->empty())
     v8_args->push_back(args.program_name());
 
-  while (!args.empty() && error->empty()) {
+  while (!args.empty() && errors->empty()) {
     if (args.first().size() <= 1 || args.first()[0] != '-') break;
 
     // We know that we're either going to consume this
@@ -288,7 +304,7 @@ void OptionsParser<Options>::Parse(
 
     if (arg == "--") {
       if (required_env_settings == kAllowedInEnvironment)
-        *error = NotAllowedInEnvErr("--");
+        errors->push_back(NotAllowedInEnvErr("--"));
       break;
     }
 
@@ -306,6 +322,12 @@ void OptionsParser<Options>::Parse(
     std::string original_name = name;
     if (equals_index != std::string::npos)
       original_name += '=';
+
+    // Normalize by replacing `_` with `-` in options.
+    for (std::string::size_type i = 2; i < name.size(); ++i) {
+      if (name[i] == '_')
+        name[i] = '-';
+    }
 
     {
       auto it = aliases_.end();
@@ -341,23 +363,10 @@ void OptionsParser<Options>::Parse(
 
     auto it = options_.find(name);
 
-    if (it == options_.end()) {
-      // We would assume that this is a V8 option if neither we nor any child
-      // parser knows about it, so we convert - to _ for
-      // canonicalization (since V8 accepts both) and look up again in order
-      // to find a match.
-      // TODO(addaleax): Make the canonicalization unconditional, i.e. allow
-      // both - and _ in Node's own options as well.
-      std::string::size_type index = 2;  // Start after initial '--'.
-      while ((index = name.find('-', index + 1)) != std::string::npos)
-        name[index] = '_';
-      it = options_.find(name);
-    }
-
     if ((it == options_.end() ||
          it->second.env_setting == kDisallowedInEnvironment) &&
         required_env_settings == kAllowedInEnvironment) {
-      *error = NotAllowedInEnvErr(original_name);
+      errors->push_back(NotAllowedInEnvErr(original_name));
       break;
     }
 
@@ -368,8 +377,10 @@ void OptionsParser<Options>::Parse(
 
     {
       auto implications = implications_.equal_range(name);
-      for (auto it = implications.first; it != implications.second; ++it)
-        *it->second.target_field->Lookup(options) = it->second.target_value;
+      for (auto it = implications.first; it != implications.second; ++it) {
+        *it->second.target_field->template Lookup<bool>(options) =
+            it->second.target_value;
+      }
     }
 
     const OptionInfo& info = it->second;
@@ -379,7 +390,7 @@ void OptionsParser<Options>::Parse(
         value = arg.substr(equals_index + 1);
         if (value.empty()) {
         missing_argument:
-          *error = RequiresArgumentErr(original_name);
+          errors->push_back(RequiresArgumentErr(original_name));
           break;
         }
       } else {
@@ -404,6 +415,9 @@ void OptionsParser<Options>::Parse(
       case kInteger:
         *Lookup<int64_t>(info.field, options) = std::atoll(value.c_str());
         break;
+      case kUInteger:
+        *Lookup<uint64_t>(info.field, options) = std::stoull(value);
+        break;
       case kString:
         *Lookup<std::string>(info.field, options) = value;
         break;
@@ -413,7 +427,7 @@ void OptionsParser<Options>::Parse(
         break;
       case kHostPort:
         Lookup<HostPort>(info.field, options)
-            ->Update(SplitHostPort(value, error));
+            ->Update(SplitHostPort(value, errors));
         break;
       case kNoOp:
         break;
@@ -424,6 +438,7 @@ void OptionsParser<Options>::Parse(
         UNREACHABLE();
     }
   }
+  options->CheckOptions(errors);
 }
 
 }  // namespace options_parser

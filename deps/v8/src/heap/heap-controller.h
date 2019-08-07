@@ -6,47 +6,55 @@
 #define V8_HEAP_HEAP_CONTROLLER_H_
 
 #include <cstddef>
-#include "src/allocation.h"
 #include "src/heap/heap.h"
+#include "src/utils/allocation.h"
 #include "testing/gtest/include/gtest/gtest_prod.h"  // nogncheck
 
 namespace v8 {
 namespace internal {
 
-class HeapController {
- public:
-  explicit HeapController(Heap* heap) : heap_(heap) {}
+struct BaseControllerTrait {
+  // Sizes are in MB.
+  static constexpr size_t kMinSize = 128 * Heap::kPointerMultiplier;
+  static constexpr size_t kMaxSize = 1024 * Heap::kPointerMultiplier;
 
-  // Computes the allocation limit to trigger the next full garbage collection.
-  V8_EXPORT_PRIVATE size_t CalculateOldGenerationAllocationLimit(
-      size_t old_gen_size, size_t max_old_generation_size, double gc_speed,
-      double mutator_speed, size_t new_space_capacity,
+  static constexpr double kMinGrowingFactor = 1.1;
+  static constexpr double kMaxGrowingFactor = 4.0;
+  static constexpr double kConservativeGrowingFactor = 1.3;
+  static constexpr double kTargetMutatorUtilization = 0.97;
+};
+
+struct V8HeapTrait : public BaseControllerTrait {
+  static const char* kName;
+};
+
+struct GlobalMemoryTrait : public BaseControllerTrait {
+  static const char* kName;
+};
+
+template <typename Trait>
+class V8_EXPORT_PRIVATE MemoryController : public AllStatic {
+ public:
+  // Computes the growing step when the limit increases.
+  static size_t MinimumAllocationLimitGrowingStep(
       Heap::HeapGrowingMode growing_mode);
 
-  size_t MinimumAllocationLimitGrowingStep(Heap::HeapGrowingMode growing_mode);
+  static double GrowingFactor(Heap* heap, size_t max_heap_size, double gc_speed,
+                              double mutator_speed);
 
-  // The old space size has to be a multiple of Page::kPageSize.
-  // Sizes are in MB.
-  static const size_t kMinOldGenerationSize = 128 * Heap::kPointerMultiplier;
-  static const size_t kMaxOldGenerationSize = 1024 * Heap::kPointerMultiplier;
+  static size_t CalculateAllocationLimit(Heap* heap, size_t current_size,
+                                         size_t max_size,
+                                         size_t new_space_capacity,
+                                         double factor,
+                                         Heap::HeapGrowingMode growing_mode);
 
  private:
-  FRIEND_TEST(HeapController, HeapGrowingFactor);
-  FRIEND_TEST(HeapController, MaxHeapGrowingFactor);
-  FRIEND_TEST(HeapControllerTest, OldGenerationAllocationLimit);
+  static double MaxGrowingFactor(size_t max_heap_size);
+  static double DynamicGrowingFactor(double gc_speed, double mutator_speed,
+                                     double max_factor);
 
-  V8_EXPORT_PRIVATE static const double kMinHeapGrowingFactor;
-  V8_EXPORT_PRIVATE static const double kMaxHeapGrowingFactor;
-  V8_EXPORT_PRIVATE static const double kConservativeHeapGrowingFactor;
-  V8_EXPORT_PRIVATE static double MaxHeapGrowingFactor(
-      size_t max_old_generation_size);
-  V8_EXPORT_PRIVATE static double HeapGrowingFactor(double gc_speed,
-                                                    double mutator_speed,
-                                                    double max_factor);
-
-  static const double kTargetMutatorUtilization;
-
-  Heap* heap_;
+  FRIEND_TEST(MemoryControllerTest, HeapGrowingFactor);
+  FRIEND_TEST(MemoryControllerTest, MaxHeapGrowingFactor);
 };
 
 }  // namespace internal

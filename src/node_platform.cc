@@ -3,25 +3,44 @@
 
 #include "env-inl.h"
 #include "debug_utils.h"
-#include "util.h"
 #include <algorithm>
+#include <cmath>
+#include <memory>
 
 namespace node {
 
-using v8::HandleScope;
 using v8::Isolate;
 using v8::Local;
 using v8::Object;
 using v8::Platform;
 using v8::Task;
-using v8::TracingController;
+using node::tracing::TracingController;
 
 namespace {
 
+struct PlatformWorkerData {
+  TaskQueue<Task>* task_queue;
+  Mutex* platform_workers_mutex;
+  ConditionVariable* platform_workers_ready;
+  int* pending_platform_workers;
+  int id;
+};
+
 static void PlatformWorkerThread(void* data) {
+  std::unique_ptr<PlatformWorkerData>
+      worker_data(static_cast<PlatformWorkerData*>(data));
+
+  TaskQueue<Task>* pending_worker_tasks = worker_data->task_queue;
   TRACE_EVENT_METADATA1("__metadata", "thread_name", "name",
                         "PlatformWorkerThread");
-  TaskQueue<Task>* pending_worker_tasks = static_cast<TaskQueue<Task>*>(data);
+
+  // Notify the main thread that the platform worker is ready.
+  {
+    Mutex::ScopedLock lock(*worker_data->platform_workers_mutex);
+    (*worker_data->pending_platform_workers)--;
+    worker_data->platform_workers_ready->Signal(lock);
+  }
+
   while (std::unique_ptr<Task> task = pending_worker_tasks->BlockingPop()) {
     task->Run();
     pending_worker_tasks->NotifyOfCompletion();
@@ -107,8 +126,7 @@ class WorkerThreadsTaskRunner::DelayedTaskScheduler {
         delay_in_seconds_(delay_in_seconds) {}
 
     void Run() override {
-      uint64_t delay_millis =
-          static_cast<uint64_t>(delay_in_seconds_ + 0.5) * 1000;
+      uint64_t delay_millis = llround(delay_in_seconds_ * 1000);
       std::unique_ptr<uv_timer_t> timer(new uv_timer_t());
       CHECK_EQ(0, uv_timer_init(&scheduler_->loop_, timer.get()));
       timer->data = task_.release();
@@ -139,25 +157,42 @@ class WorkerThreadsTaskRunner::DelayedTaskScheduler {
   }
 
   uv_sem_t ready_;
-  TaskQueue<v8::Task>* pending_worker_tasks_;
+  TaskQueue<Task>* pending_worker_tasks_;
 
-  TaskQueue<v8::Task> tasks_;
+  TaskQueue<Task> tasks_;
   uv_loop_t loop_;
   uv_async_t flush_tasks_;
   std::unordered_set<uv_timer_t*> timers_;
 };
 
 WorkerThreadsTaskRunner::WorkerThreadsTaskRunner(int thread_pool_size) {
-  delayed_task_scheduler_.reset(
-      new DelayedTaskScheduler(&pending_worker_tasks_));
+  Mutex platform_workers_mutex;
+  ConditionVariable platform_workers_ready;
+
+  Mutex::ScopedLock lock(platform_workers_mutex);
+  int pending_platform_workers = thread_pool_size;
+
+  delayed_task_scheduler_ = std::make_unique<DelayedTaskScheduler>(
+      &pending_worker_tasks_);
   threads_.push_back(delayed_task_scheduler_->Start());
+
   for (int i = 0; i < thread_pool_size; i++) {
+    PlatformWorkerData* worker_data = new PlatformWorkerData{
+      &pending_worker_tasks_, &platform_workers_mutex,
+      &platform_workers_ready, &pending_platform_workers, i
+    };
     std::unique_ptr<uv_thread_t> t { new uv_thread_t() };
     if (uv_thread_create(t.get(), PlatformWorkerThread,
-                         &pending_worker_tasks_) != 0) {
+                         worker_data) != 0) {
       break;
     }
     threads_.push_back(std::move(t));
+  }
+
+  // Wait for platform workers to initialize before continuing with the
+  // bootstrap.
+  while (pending_platform_workers > 0) {
+    platform_workers_ready.Wait(lock);
   }
 }
 
@@ -165,7 +200,7 @@ void WorkerThreadsTaskRunner::PostTask(std::unique_ptr<Task> task) {
   pending_worker_tasks_.Push(std::move(task));
 }
 
-void WorkerThreadsTaskRunner::PostDelayedTask(std::unique_ptr<v8::Task> task,
+void WorkerThreadsTaskRunner::PostDelayedTask(std::unique_ptr<Task> task,
                                               double delay_in_seconds) {
   delayed_task_scheduler_->PostDelayedTask(std::move(task), delay_in_seconds);
 }
@@ -187,7 +222,7 @@ int WorkerThreadsTaskRunner::NumberOfWorkerThreads() const {
 }
 
 PerIsolatePlatformData::PerIsolatePlatformData(
-    v8::Isolate* isolate, uv_loop_t* loop)
+    Isolate* isolate, uv_loop_t* loop)
   : loop_(loop) {
   flush_tasks_ = new uv_async_t();
   CHECK_EQ(0, uv_async_init(loop, flush_tasks_, FlushTasks));
@@ -205,14 +240,14 @@ void PerIsolatePlatformData::PostIdleTask(std::unique_ptr<v8::IdleTask> task) {
 }
 
 void PerIsolatePlatformData::PostTask(std::unique_ptr<Task> task) {
-  CHECK_NE(flush_tasks_, nullptr);
+  CHECK_NOT_NULL(flush_tasks_);
   foreground_tasks_.Push(std::move(task));
   uv_async_send(flush_tasks_);
 }
 
 void PerIsolatePlatformData::PostDelayedTask(
     std::unique_ptr<Task> task, double delay_in_seconds) {
-  CHECK_NE(flush_tasks_, nullptr);
+  CHECK_NOT_NULL(flush_tasks_);
   std::unique_ptr<DelayedTask> delayed(new DelayedTask());
   delayed->task = std::move(task);
   delayed->platform_data = shared_from_this();
@@ -221,39 +256,52 @@ void PerIsolatePlatformData::PostDelayedTask(
   uv_async_send(flush_tasks_);
 }
 
+void PerIsolatePlatformData::PostNonNestableTask(std::unique_ptr<Task> task) {
+  PostTask(std::move(task));
+}
+
+void PerIsolatePlatformData::PostNonNestableDelayedTask(
+    std::unique_ptr<Task> task,
+    double delay_in_seconds) {
+  PostDelayedTask(std::move(task), delay_in_seconds);
+}
+
 PerIsolatePlatformData::~PerIsolatePlatformData() {
   Shutdown();
+}
+
+void PerIsolatePlatformData::AddShutdownCallback(void (*callback)(void*),
+                                                 void* data) {
+  shutdown_callbacks_.emplace_back(ShutdownCallback { callback, data });
 }
 
 void PerIsolatePlatformData::Shutdown() {
   if (flush_tasks_ == nullptr)
     return;
 
-  while (FlushForegroundTasksInternal()) {}
+  CHECK_NULL(foreground_delayed_tasks_.Pop());
+  CHECK_NULL(foreground_tasks_.Pop());
   CancelPendingDelayedTasks();
 
+  ShutdownCbList* copy = new ShutdownCbList(std::move(shutdown_callbacks_));
+  flush_tasks_->data = copy;
   uv_close(reinterpret_cast<uv_handle_t*>(flush_tasks_),
            [](uv_handle_t* handle) {
+    std::unique_ptr<ShutdownCbList> callbacks(
+        static_cast<ShutdownCbList*>(handle->data));
+    for (const auto& callback : *callbacks)
+      callback.cb(callback.data);
     delete reinterpret_cast<uv_async_t*>(handle);
   });
   flush_tasks_ = nullptr;
 }
 
-void PerIsolatePlatformData::ref() {
-  ref_count_++;
-}
-
-int PerIsolatePlatformData::unref() {
-  return --ref_count_;
-}
-
 NodePlatform::NodePlatform(int thread_pool_size,
                            TracingController* tracing_controller) {
   if (tracing_controller) {
-    tracing_controller_.reset(tracing_controller);
+    tracing_controller_ = tracing_controller;
   } else {
-    TracingController* controller = new TracingController();
-    tracing_controller_.reset(controller);
+    tracing_controller_ = new TracingController();
   }
   worker_thread_task_runner_ =
       std::make_shared<WorkerThreadsTaskRunner>(thread_pool_size);
@@ -262,23 +310,29 @@ NodePlatform::NodePlatform(int thread_pool_size,
 void NodePlatform::RegisterIsolate(Isolate* isolate, uv_loop_t* loop) {
   Mutex::ScopedLock lock(per_isolate_mutex_);
   std::shared_ptr<PerIsolatePlatformData> existing = per_isolate_[isolate];
-  if (existing) {
-    CHECK_EQ(loop, existing->event_loop());
-    existing->ref();
-  } else {
-    per_isolate_[isolate] =
-        std::make_shared<PerIsolatePlatformData>(isolate, loop);
-  }
+  CHECK(!existing);
+  per_isolate_[isolate] =
+      std::make_shared<PerIsolatePlatformData>(isolate, loop);
 }
 
 void NodePlatform::UnregisterIsolate(Isolate* isolate) {
   Mutex::ScopedLock lock(per_isolate_mutex_);
   std::shared_ptr<PerIsolatePlatformData> existing = per_isolate_[isolate];
   CHECK(existing);
-  if (existing->unref() == 0) {
-    existing->Shutdown();
-    per_isolate_.erase(isolate);
+  existing->Shutdown();
+  per_isolate_.erase(isolate);
+}
+
+void NodePlatform::AddIsolateFinishedCallback(Isolate* isolate,
+                                              void (*cb)(void*), void* data) {
+  Mutex::ScopedLock lock(per_isolate_mutex_);
+  auto it = per_isolate_.find(isolate);
+  if (it == per_isolate_.end()) {
+    CHECK(it->second);
+    cb(data);
+    return;
   }
+  it->second->AddShutdownCallback(cb, data);
 }
 
 void NodePlatform::Shutdown() {
@@ -296,11 +350,15 @@ int NodePlatform::NumberOfWorkerThreads() {
 
 void PerIsolatePlatformData::RunForegroundTask(std::unique_ptr<Task> task) {
   Isolate* isolate = Isolate::GetCurrent();
-  HandleScope scope(isolate);
+  DebugSealHandleScope scope(isolate);
   Environment* env = Environment::GetCurrent(isolate);
-  InternalCallbackScope cb_scope(env, Local<Object>(), { 0, 0 },
-                                 InternalCallbackScope::kAllowEmptyResource);
-  task->Run();
+  if (env != nullptr) {
+    InternalCallbackScope cb_scope(env, Local<Object>(), { 0, 0 },
+                                   InternalCallbackScope::kAllowEmptyResource);
+    task->Run();
+  } else {
+    task->Run();
+  }
 }
 
 void PerIsolatePlatformData::DeleteFromScheduledTasks(DelayedTask* task) {
@@ -338,8 +396,8 @@ bool PerIsolatePlatformData::FlushForegroundTasksInternal() {
   while (std::unique_ptr<DelayedTask> delayed =
       foreground_delayed_tasks_.Pop()) {
     did_work = true;
-    uint64_t delay_millis =
-        static_cast<uint64_t>(delayed->timeout + 0.5) * 1000;
+    uint64_t delay_millis = llround(delayed->timeout * 1000);
+
     delayed->timer.data = static_cast<void*>(delayed.get());
     uv_timer_init(loop_, &delayed->timer);
     // Timers may not guarantee queue ordering of events with the same delay if
@@ -368,11 +426,11 @@ bool PerIsolatePlatformData::FlushForegroundTasksInternal() {
   return did_work;
 }
 
-void NodePlatform::CallOnWorkerThread(std::unique_ptr<v8::Task> task) {
+void NodePlatform::CallOnWorkerThread(std::unique_ptr<Task> task) {
   worker_thread_task_runner_->PostTask(std::move(task));
 }
 
-void NodePlatform::CallDelayedOnWorkerThread(std::unique_ptr<v8::Task> task,
+void NodePlatform::CallDelayedOnWorkerThread(std::unique_ptr<Task> task,
                                              double delay_in_seconds) {
   worker_thread_task_runner_->PostDelayedTask(std::move(task),
                                               delay_in_seconds);
@@ -387,22 +445,11 @@ NodePlatform::ForIsolate(Isolate* isolate) {
   return data;
 }
 
-void NodePlatform::CallOnForegroundThread(Isolate* isolate, Task* task) {
-  ForIsolate(isolate)->PostTask(std::unique_ptr<Task>(task));
-}
-
-void NodePlatform::CallDelayedOnForegroundThread(Isolate* isolate,
-                                                 Task* task,
-                                                 double delay_in_seconds) {
-  ForIsolate(isolate)->PostDelayedTask(
-    std::unique_ptr<Task>(task), delay_in_seconds);
-}
-
-bool NodePlatform::FlushForegroundTasks(v8::Isolate* isolate) {
+bool NodePlatform::FlushForegroundTasks(Isolate* isolate) {
   return ForIsolate(isolate)->FlushForegroundTasksInternal();
 }
 
-void NodePlatform::CancelPendingDelayedTasks(v8::Isolate* isolate) {
+void NodePlatform::CancelPendingDelayedTasks(Isolate* isolate) {
   ForIsolate(isolate)->CancelPendingDelayedTasks();
 }
 
@@ -423,7 +470,8 @@ double NodePlatform::CurrentClockTimeMillis() {
 }
 
 TracingController* NodePlatform::GetTracingController() {
-  return tracing_controller_.get();
+  CHECK_NOT_NULL(tracing_controller_);
+  return tracing_controller_;
 }
 
 template <class T>

@@ -2,15 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/builtins/builtins-utils.h"
+#include "src/builtins/builtins-utils-inl.h"
 #include "src/builtins/builtins.h"
-#include "src/code-factory.h"
-#include "src/code-stub-assembler.h"
-#include "src/counters.h"
-#include "src/keys.h"
-#include "src/lookup.h"
-#include "src/objects-inl.h"
-#include "src/property-descriptor.h"
+#include "src/codegen/code-factory.h"
+#include "src/execution/message-template.h"
+#include "src/heap/heap-inl.h"  // For ToBoolean. TODO(jkummerow): Drop.
+#include "src/logging/counters.h"
+#include "src/objects/keys.h"
+#include "src/objects/lookup.h"
+#include "src/objects/objects-inl.h"
+#include "src/objects/property-descriptor.h"
 
 namespace v8 {
 namespace internal {
@@ -26,7 +27,7 @@ BUILTIN(ObjectPrototypePropertyIsEnumerable) {
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
       isolate, name, Object::ToName(isolate, args.atOrUndefined(isolate, 1)));
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-      isolate, object, JSReceiver::ToObject(isolate, args.receiver()));
+      isolate, object, Object::ToObject(isolate, args.receiver()));
   Maybe<PropertyAttributes> maybe =
       JSReceiver::GetOwnPropertyAttributes(object, name);
   if (maybe.IsNothing()) return ReadOnlyRoots(isolate).exception();
@@ -59,15 +60,15 @@ BUILTIN(ObjectDefineProperty) {
 namespace {
 
 template <AccessorComponent which_accessor>
-Object* ObjectDefineAccessor(Isolate* isolate, Handle<Object> object,
-                             Handle<Object> name, Handle<Object> accessor) {
+Object ObjectDefineAccessor(Isolate* isolate, Handle<Object> object,
+                            Handle<Object> name, Handle<Object> accessor) {
   // 1. Let O be ? ToObject(this value).
   Handle<JSReceiver> receiver;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, receiver,
                                      Object::ToObject(isolate, object));
   // 2. If IsCallable(getter) is false, throw a TypeError exception.
   if (!accessor->IsCallable()) {
-    MessageTemplate::Template message =
+    MessageTemplate message =
         which_accessor == ACCESSOR_GETTER
             ? MessageTemplate::kObjectGetterExpectingFunction
             : MessageTemplate::kObjectSetterExpectingFunction;
@@ -90,8 +91,8 @@ Object* ObjectDefineAccessor(Isolate* isolate, Handle<Object> object,
   // 5. Perform ? DefinePropertyOrThrow(O, key, desc).
   // To preserve legacy behavior, we ignore errors silently rather than
   // throwing an exception.
-  Maybe<bool> success = JSReceiver::DefineOwnProperty(isolate, receiver, name,
-                                                      &desc, kThrowOnError);
+  Maybe<bool> success = JSReceiver::DefineOwnProperty(
+      isolate, receiver, name, &desc, Just(kThrowOnError));
   MAYBE_RETURN(success, ReadOnlyRoots(isolate).exception());
   if (!success.FromJust()) {
     isolate->CountUsage(v8::Isolate::kDefineGetterOrSetterWouldThrow);
@@ -100,8 +101,8 @@ Object* ObjectDefineAccessor(Isolate* isolate, Handle<Object> object,
   return ReadOnlyRoots(isolate).undefined_value();
 }
 
-Object* ObjectLookupAccessor(Isolate* isolate, Handle<Object> object,
-                             Handle<Object> key, AccessorComponent component) {
+Object ObjectLookupAccessor(Isolate* isolate, Handle<Object> object,
+                            Handle<Object> key, AccessorComponent component) {
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, object,
                                      Object::ToObject(isolate, object));
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, key,
@@ -309,8 +310,8 @@ BUILTIN(ObjectPrototypeSetProto) {
 
 namespace {
 
-Object* GetOwnPropertyKeys(Isolate* isolate, BuiltinArguments args,
-                           PropertyFilter filter) {
+Object GetOwnPropertyKeys(Isolate* isolate, BuiltinArguments args,
+                          PropertyFilter filter) {
   HandleScope scope(isolate);
   Handle<Object> object = args.atOrUndefined(isolate, 1);
   Handle<JSReceiver> receiver;
@@ -394,10 +395,8 @@ BUILTIN(ObjectGetOwnPropertyDescriptors) {
     if (!did_get_descriptor.FromJust()) continue;
     Handle<Object> from_descriptor = descriptor.ToObject(isolate);
 
-    LookupIterator it = LookupIterator::PropertyOrElement(
-        isolate, descriptors, key, descriptors, LookupIterator::OWN);
-    Maybe<bool> success =
-        JSReceiver::CreateDataProperty(&it, from_descriptor, kDontThrow);
+    Maybe<bool> success = JSReceiver::CreateDataProperty(
+        isolate, descriptors, key, from_descriptor, Just(kDontThrow));
     CHECK(success.FromJust());
   }
 

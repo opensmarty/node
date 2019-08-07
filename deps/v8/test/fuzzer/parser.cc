@@ -10,8 +10,8 @@
 #include <list>
 
 #include "include/v8.h"
-#include "src/objects-inl.h"
-#include "src/objects.h"
+#include "src/objects/objects-inl.h"
+#include "src/objects/objects.h"
 #include "src/parsing/parse-info.h"
 #include "src/parsing/parsing.h"
 #include "src/parsing/preparser.h"
@@ -19,7 +19,7 @@
 
 bool IsValidInput(const uint8_t* data, size_t size) {
   // Ignore too long inputs as they tend to find OOM or timeouts, not real bugs.
-  if (size > 8192) {
+  if (size > 2048) {
     return false;
   }
 

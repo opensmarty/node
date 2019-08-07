@@ -6,11 +6,11 @@
 #define V8_COMPILER_JS_OPERATOR_H_
 
 #include "src/base/compiler-specific.h"
-#include "src/globals.h"
-#include "src/handles.h"
+#include "src/common/globals.h"
+#include "src/compiler/vector-slot-pair.h"
+#include "src/handles/maybe-handles.h"
+#include "src/objects/type-hints.h"
 #include "src/runtime/runtime.h"
-#include "src/type-hints.h"
-#include "src/vector-slot-pair.h"
 
 namespace v8 {
 namespace internal {
@@ -52,6 +52,8 @@ class CallFrequency final {
     return bit_cast<uint32_t>(f.value_);
   }
 
+  static constexpr float kNoFeedbackCallFrequency = -1;
+
  private:
   float value_;
 };
@@ -83,8 +85,8 @@ class ConstructForwardVarargsParameters final {
     return p.bit_field_;
   }
 
-  typedef BitField<size_t, 0, 16> ArityField;
-  typedef BitField<uint32_t, 16, 16> StartIndexField;
+  using ArityField = BitField<size_t, 0, 16>;
+  using StartIndexField = BitField<uint32_t, 16, 16>;
 
   uint32_t const bit_field_;
 };
@@ -104,7 +106,7 @@ class ConstructParameters final {
       : arity_(arity), frequency_(frequency), feedback_(feedback) {}
 
   uint32_t arity() const { return arity_; }
-  CallFrequency frequency() const { return frequency_; }
+  CallFrequency const& frequency() const { return frequency_; }
   VectorSlotPair const& feedback() const { return feedback_; }
 
  private:
@@ -145,8 +147,8 @@ class CallForwardVarargsParameters final {
     return p.bit_field_;
   }
 
-  typedef BitField<size_t, 0, 15> ArityField;
-  typedef BitField<uint32_t, 15, 15> StartIndexField;
+  using ArityField = BitField<size_t, 0, 15>;
+  using StartIndexField = BitField<uint32_t, 15, 15>;
 
   uint32_t const bit_field_;
 };
@@ -160,7 +162,7 @@ CallForwardVarargsParameters const& CallForwardVarargsParametersOf(
 // used as a parameter by JSCall and JSCallWithSpread operators.
 class CallParameters final {
  public:
-  CallParameters(size_t arity, CallFrequency frequency,
+  CallParameters(size_t arity, CallFrequency const& frequency,
                  VectorSlotPair const& feedback,
                  ConvertReceiverMode convert_mode,
                  SpeculationMode speculation_mode)
@@ -171,7 +173,7 @@ class CallParameters final {
         feedback_(feedback) {}
 
   size_t arity() const { return ArityField::decode(bit_field_); }
-  CallFrequency frequency() const { return frequency_; }
+  CallFrequency const& frequency() const { return frequency_; }
   ConvertReceiverMode convert_mode() const {
     return ConvertReceiverModeField::decode(bit_field_);
   }
@@ -193,9 +195,9 @@ class CallParameters final {
     return base::hash_combine(p.bit_field_, p.frequency_, p.feedback_);
   }
 
-  typedef BitField<size_t, 0, 28> ArityField;
-  typedef BitField<SpeculationMode, 28, 1> SpeculationModeField;
-  typedef BitField<ConvertReceiverMode, 29, 2> ConvertReceiverModeField;
+  using ArityField = BitField<size_t, 0, 28>;
+  using SpeculationModeField = BitField<SpeculationMode, 28, 1>;
+  using ConvertReceiverModeField = BitField<ConvertReceiverMode, 29, 2>;
 
   uint32_t const bit_field_;
   CallFrequency const frequency_;
@@ -444,7 +446,8 @@ bool operator!=(PropertyAccess const&, PropertyAccess const&);
 
 size_t hash_value(PropertyAccess const&);
 
-std::ostream& operator<<(std::ostream&, PropertyAccess const&);
+V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream&,
+                                           PropertyAccess const&);
 
 PropertyAccess const& PropertyAccessOf(const Operator* op);
 
@@ -457,15 +460,15 @@ CreateArgumentsType const& CreateArgumentsTypeOf(const Operator* op);
 // used as parameter by JSCreateArray operators.
 class CreateArrayParameters final {
  public:
-  explicit CreateArrayParameters(size_t arity, Handle<AllocationSite> site)
+  explicit CreateArrayParameters(size_t arity, MaybeHandle<AllocationSite> site)
       : arity_(arity), site_(site) {}
 
   size_t arity() const { return arity_; }
-  Handle<AllocationSite> site() const { return site_; }
+  MaybeHandle<AllocationSite> site() const { return site_; }
 
  private:
   size_t const arity_;
-  Handle<AllocationSite> const site_;
+  MaybeHandle<AllocationSite> const site_;
 };
 
 bool operator==(CreateArrayParameters const&, CreateArrayParameters const&);
@@ -566,22 +569,22 @@ class CreateClosureParameters final {
  public:
   CreateClosureParameters(Handle<SharedFunctionInfo> shared_info,
                           Handle<FeedbackCell> feedback_cell, Handle<Code> code,
-                          PretenureFlag pretenure)
+                          AllocationType allocation)
       : shared_info_(shared_info),
         feedback_cell_(feedback_cell),
         code_(code),
-        pretenure_(pretenure) {}
+        allocation_(allocation) {}
 
   Handle<SharedFunctionInfo> shared_info() const { return shared_info_; }
   Handle<FeedbackCell> feedback_cell() const { return feedback_cell_; }
   Handle<Code> code() const { return code_; }
-  PretenureFlag pretenure() const { return pretenure_; }
+  AllocationType allocation() const { return allocation_; }
 
  private:
   Handle<SharedFunctionInfo> const shared_info_;
   Handle<FeedbackCell> const feedback_cell_;
   Handle<Code> const code_;
-  PretenureFlag const pretenure_;
+  AllocationType const allocation_;
 };
 
 bool operator==(CreateClosureParameters const&, CreateClosureParameters const&);
@@ -626,6 +629,28 @@ std::ostream& operator<<(std::ostream&, CreateLiteralParameters const&);
 
 const CreateLiteralParameters& CreateLiteralParametersOf(const Operator* op);
 
+class CloneObjectParameters final {
+ public:
+  CloneObjectParameters(VectorSlotPair const& feedback, int flags)
+      : feedback_(feedback), flags_(flags) {}
+
+  VectorSlotPair const& feedback() const { return feedback_; }
+  int flags() const { return flags_; }
+
+ private:
+  VectorSlotPair const feedback_;
+  int const flags_;
+};
+
+bool operator==(CloneObjectParameters const&, CloneObjectParameters const&);
+bool operator!=(CloneObjectParameters const&, CloneObjectParameters const&);
+
+size_t hash_value(CloneObjectParameters const&);
+
+std::ostream& operator<<(std::ostream&, CloneObjectParameters const&);
+
+const CloneObjectParameters& CloneObjectParametersOf(const Operator* op);
+
 // Descriptor used by the JSForInPrepare and JSForInNext opcodes.
 enum class ForInMode : uint8_t {
   kUseEnumCacheKeysAndIndices,
@@ -642,6 +667,8 @@ ForInMode ForInModeOf(Operator const* op) V8_WARN_UNUSED_RESULT;
 BinaryOperationHint BinaryOperationHintOf(const Operator* op);
 
 CompareOperationHint CompareOperationHintOf(const Operator* op);
+
+int RegisterCountOf(Operator const* op) V8_WARN_UNUSED_RESULT;
 
 int GeneratorStoreValueCountOf(const Operator* op) V8_WARN_UNUSED_RESULT;
 int RestoreRegisterIndexOf(const Operator* op) V8_WARN_UNUSED_RESULT;
@@ -681,24 +708,25 @@ class V8_EXPORT_PRIVATE JSOperatorBuilder final
   const Operator* Increment();
   const Operator* Negate();
 
-  const Operator* ToInteger();
   const Operator* ToLength();
   const Operator* ToName();
   const Operator* ToNumber();
+  const Operator* ToNumberConvertBigInt();
   const Operator* ToNumeric();
   const Operator* ToObject();
   const Operator* ToString();
 
   const Operator* Create();
   const Operator* CreateArguments(CreateArgumentsType type);
-  const Operator* CreateArray(size_t arity, Handle<AllocationSite> site);
+  const Operator* CreateArray(size_t arity, MaybeHandle<AllocationSite> site);
   const Operator* CreateArrayIterator(IterationKind);
+  const Operator* CreateAsyncFunctionObject(int register_count);
   const Operator* CreateCollectionIterator(CollectionKind, IterationKind);
   const Operator* CreateBoundFunction(size_t arity, Handle<Map> map);
-  const Operator* CreateClosure(Handle<SharedFunctionInfo> shared_info,
-                                Handle<FeedbackCell> feedback_cell,
-                                Handle<Code> code,
-                                PretenureFlag pretenure = NOT_TENURED);
+  const Operator* CreateClosure(
+      Handle<SharedFunctionInfo> shared_info,
+      Handle<FeedbackCell> feedback_cell, Handle<Code> code,
+      AllocationType allocation = AllocationType::kYoung);
   const Operator* CreateIterResultObject();
   const Operator* CreateStringIterator();
   const Operator* CreateKeyValueArray();
@@ -710,25 +738,28 @@ class V8_EXPORT_PRIVATE JSOperatorBuilder final
       VectorSlotPair const& feedback, int literal_flags,
       int number_of_elements);
   const Operator* CreateEmptyLiteralArray(VectorSlotPair const& feedback);
+  const Operator* CreateArrayFromIterable();
   const Operator* CreateEmptyLiteralObject();
 
   const Operator* CreateLiteralObject(
       Handle<ObjectBoilerplateDescription> constant,
       VectorSlotPair const& feedback, int literal_flags,
       int number_of_properties);
+  const Operator* CloneObject(VectorSlotPair const& feedback,
+                              int literal_flags);
   const Operator* CreateLiteralRegExp(Handle<String> constant_pattern,
                                       VectorSlotPair const& feedback,
                                       int literal_flags);
 
   const Operator* CallForwardVarargs(size_t arity, uint32_t start_index);
   const Operator* Call(
-      size_t arity, CallFrequency frequency = CallFrequency(),
+      size_t arity, CallFrequency const& frequency = CallFrequency(),
       VectorSlotPair const& feedback = VectorSlotPair(),
       ConvertReceiverMode convert_mode = ConvertReceiverMode::kAny,
       SpeculationMode speculation_mode = SpeculationMode::kDisallowSpeculation);
   const Operator* CallWithArrayLike(CallFrequency frequency);
   const Operator* CallWithSpread(
-      uint32_t arity, CallFrequency frequency = CallFrequency(),
+      uint32_t arity, CallFrequency const& frequency = CallFrequency(),
       VectorSlotPair const& feedback = VectorSlotPair(),
       SpeculationMode speculation_mode = SpeculationMode::kDisallowSpeculation);
   const Operator* CallRuntime(Runtime::FunctionId id);
@@ -759,7 +790,7 @@ class V8_EXPORT_PRIVATE JSOperatorBuilder final
 
   const Operator* DeleteProperty();
 
-  const Operator* HasProperty();
+  const Operator* HasProperty(VectorSlotPair const& feedback);
 
   const Operator* GetSuperConstructor();
 
@@ -781,6 +812,10 @@ class V8_EXPORT_PRIVATE JSOperatorBuilder final
   const Operator* HasInPrototypeChain();
   const Operator* InstanceOf(const VectorSlotPair& feedback);
   const Operator* OrdinaryHasInstance();
+
+  const Operator* AsyncFunctionEnter();
+  const Operator* AsyncFunctionReject();
+  const Operator* AsyncFunctionResolve();
 
   const Operator* ForInEnumerate();
   const Operator* ForInNext(ForInMode);

@@ -3,7 +3,7 @@ assert.js:*
   throw new AssertionError(obj);
   ^
 
-AssertionError [ERR_ASSERTION]: Expected inputs to be strictly equal:
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
 
 1 !== 2
 
@@ -11,8 +11,12 @@ AssertionError [ERR_ASSERTION]: Expected inputs to be strictly equal:
     at Module._compile (internal/modules/cjs/loader.js:*:*)
     at Object.Module._extensions..js (internal/modules/cjs/loader.js:*:*)
     at Module.load (internal/modules/cjs/loader.js:*:*)
-    at tryModuleLoad (internal/modules/cjs/loader.js:*:*)
     at Function.Module._load (internal/modules/cjs/loader.js:*:*)
     at Function.Module.runMain (internal/modules/cjs/loader.js:*:*)
-    at startup (internal/bootstrap/node.js:*:*)
-    at bootstrapNodeJSCore (internal/bootstrap/node.js:*:*)
+    at internal/main/run_main_module.js:*:* {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 1,
+  expected: 2,
+  operator: 'strictEqual'
+}

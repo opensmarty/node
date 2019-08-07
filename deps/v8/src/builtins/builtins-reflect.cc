@@ -2,14 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/builtins/builtins-utils-inl.h"
 #include "src/builtins/builtins.h"
-#include "src/builtins/builtins-utils.h"
-
-#include "src/counters.h"
-#include "src/keys.h"
-#include "src/lookup.h"
-#include "src/objects-inl.h"
-#include "src/property-descriptor.h"
+#include "src/logging/counters.h"
+#include "src/objects/keys.h"
+#include "src/objects/lookup.h"
+#include "src/objects/objects-inl.h"
+#include "src/objects/property-descriptor.h"
 
 namespace v8 {
 namespace internal {
@@ -42,7 +41,7 @@ BUILTIN(ReflectDefineProperty) {
   }
 
   Maybe<bool> result = JSReceiver::DefineOwnProperty(
-      isolate, Handle<JSReceiver>::cast(target), name, &desc, kDontThrow);
+      isolate, Handle<JSReceiver>::cast(target), name, &desc, Just(kDontThrow));
   MAYBE_RETURN(result, ReadOnlyRoots(isolate).exception());
   return *isolate->factory()->ToBoolean(result.FromJust());
 }
@@ -219,7 +218,7 @@ BUILTIN(ReflectSet) {
   LookupIterator it = LookupIterator::PropertyOrElement(
       isolate, receiver, name, Handle<JSReceiver>::cast(target));
   Maybe<bool> result = Object::SetSuperProperty(
-      &it, value, LanguageMode::kSloppy, Object::MAY_BE_STORE_FROM_KEYED);
+      &it, value, StoreOrigin::kMaybeKeyed, Just(ShouldThrow::kDontThrow));
   MAYBE_RETURN(result, ReadOnlyRoots(isolate).exception());
   return *isolate->factory()->ToBoolean(result.FromJust());
 }

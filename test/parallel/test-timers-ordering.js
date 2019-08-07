@@ -24,7 +24,8 @@
 'use strict';
 require('../common');
 const assert = require('assert');
-const { getLibuvNow } = require('internal/timers');
+const { internalBinding } = require('internal/test/binding');
+const { getLibuvNow } = internalBinding('timers');
 
 const N = 30;
 
@@ -37,13 +38,13 @@ function f(i) {
     assert.strictEqual(i, last_i + 1, `order is broken: ${i} != ${last_i} + 1`);
     last_i = i;
 
-    // check that this iteration is fired at least 1ms later than the previous
+    // Check that this iteration is fired at least 1ms later than the previous
     const now = getLibuvNow();
     assert(now >= last_ts + 1,
            `current ts ${now} < prev ts ${last_ts} + 1`);
     last_ts = now;
 
-    // schedule next iteration
+    // Schedule next iteration
     setTimeout(f, 1, i + 1);
   }
 }

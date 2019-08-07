@@ -3,8 +3,9 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include "node_internals.h"
+#include "base_object-inl.h"
 #include "node_context_data.h"
+#include "node_errors.h"
 
 namespace node {
 namespace contextify {
@@ -21,14 +22,14 @@ class ContextifyContext {
   ContextifyContext(Environment* env,
                     v8::Local<v8::Object> sandbox_obj,
                     const ContextOptions& options);
+  ~ContextifyContext();
+  static void CleanupHook(void* arg);
 
-  v8::Local<v8::Value> CreateDataWrapper(Environment* env);
-  v8::Local<v8::Context> CreateV8Context(Environment* env,
-      v8::Local<v8::Object> sandbox_obj, const ContextOptions& options);
+  v8::MaybeLocal<v8::Object> CreateDataWrapper(Environment* env);
+  v8::MaybeLocal<v8::Context> CreateV8Context(Environment* env,
+                                              v8::Local<v8::Object> sandbox_obj,
+                                              const ContextOptions& options);
   static void Init(Environment* env, v8::Local<v8::Object> target);
-
-  static bool AllowWasmCodeGeneration(
-      v8::Local<v8::Context> context, v8::Local<v8::String>);
 
   static ContextifyContext* ContextFromContextifiedSandbox(
       Environment* env,
@@ -39,7 +40,7 @@ class ContextifyContext {
   }
 
   inline v8::Local<v8::Context> context() const {
-    return PersistentToLocal(env()->isolate(), context_);
+    return PersistentToLocal::Default(env()->isolate(), context_);
   }
 
   inline v8::Local<v8::Object> global_proxy() const {
@@ -69,9 +70,6 @@ class ContextifyContext {
       v8::Local<v8::Name> property,
       v8::Local<v8::Value> value,
       const v8::PropertyCallbackInfo<v8::Value>& args);
-  static void PropertyQueryCallback(
-      v8::Local<v8::Name> property,
-      const v8::PropertyCallbackInfo<v8::Integer>& args);
   static void PropertyDescriptorCallback(
       v8::Local<v8::Name> property,
       const v8::PropertyCallbackInfo<v8::Value>& args);
@@ -91,9 +89,6 @@ class ContextifyContext {
       uint32_t index,
       v8::Local<v8::Value> value,
       const v8::PropertyCallbackInfo<v8::Value>& args);
-  static void IndexedPropertyQueryCallback(
-      uint32_t index,
-      const v8::PropertyCallbackInfo<v8::Integer>& args);
   static void IndexedPropertyDescriptorCallback(
       uint32_t index,
       const v8::PropertyCallbackInfo<v8::Value>& args);
@@ -105,7 +100,56 @@ class ContextifyContext {
       uint32_t index,
       const v8::PropertyCallbackInfo<v8::Boolean>& args);
   Environment* const env_;
-  Persistent<v8::Context> context_;
+  v8::Global<v8::Context> context_;
+};
+
+class ContextifyScript : public BaseObject {
+ public:
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(ContextifyScript)
+  SET_SELF_SIZE(ContextifyScript)
+
+  ContextifyScript(Environment* env, v8::Local<v8::Object> object);
+  ~ContextifyScript() override;
+
+  static void Init(Environment* env, v8::Local<v8::Object> target);
+  static void New(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static bool InstanceOf(Environment* env, const v8::Local<v8::Value>& args);
+  static void CreateCachedData(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void RunInThisContext(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void RunInContext(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static bool EvalMachine(Environment* env,
+                          const int64_t timeout,
+                          const bool display_errors,
+                          const bool break_on_sigint,
+                          const bool break_on_first_line,
+                          const v8::FunctionCallbackInfo<v8::Value>& args);
+
+  inline uint32_t id() { return id_; }
+
+ private:
+  v8::Global<v8::UnboundScript> script_;
+  uint32_t id_;
+};
+
+class CompiledFnEntry final : public BaseObject {
+ public:
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(CompiledFnEntry)
+  SET_SELF_SIZE(CompiledFnEntry)
+
+  CompiledFnEntry(Environment* env,
+                  v8::Local<v8::Object> object,
+                  uint32_t id,
+                  v8::Local<v8::ScriptOrModule> script);
+  ~CompiledFnEntry();
+
+ private:
+  uint32_t id_;
+  v8::Global<v8::ScriptOrModule> script_;
+
+  static void WeakCallback(const v8::WeakCallbackInfo<CompiledFnEntry>& data);
 };
 
 }  // namespace contextify

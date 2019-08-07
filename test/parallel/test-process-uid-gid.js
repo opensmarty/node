@@ -24,16 +24,17 @@ const common = require('../common');
 
 const assert = require('assert');
 
-if (common.isWindows || !common.isMainThread) {
-  // uid/gid functions are POSIX only, setters are main-thread only.
-  if (common.isMainThread) {
-    assert.strictEqual(process.getuid, undefined);
-    assert.strictEqual(process.getgid, undefined);
-  }
+if (common.isWindows) {
+  // uid/gid functions are POSIX only.
+  assert.strictEqual(process.getuid, undefined);
+  assert.strictEqual(process.getgid, undefined);
   assert.strictEqual(process.setuid, undefined);
   assert.strictEqual(process.setgid, undefined);
   return;
 }
+
+if (!common.isMainThread)
+  return;
 
 assert.throws(() => {
   process.setuid({});
@@ -73,7 +74,7 @@ const oldgid = process.getgid();
 try {
   process.setgid('nobody');
 } catch (err) {
-  if (err.message !== 'setgid group id does not exist') {
+  if (err.code !== 'ERR_UNKNOWN_CREDENTIAL') {
     throw err;
   }
   process.setgid('nogroup');

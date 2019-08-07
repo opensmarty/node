@@ -45,7 +45,7 @@ function run({ input, output, event, checkTerminalCodes = true }) {
 const tests = [
   {
     input: '',
-    output: '\n(To exit, press ^C again or type .exit)',
+    output: '\n(To exit, press ^C again or ^D or type .exit)',
     event: { ctrl: true, name: 'c' }
   },
   {
@@ -74,7 +74,7 @@ const tests = [
 tests.forEach(run);
 
 // Auto code alignment for .editor mode
-function testCodeAligment({ input, cursor = 0, line = '' }) {
+function testCodeAlignment({ input, cursor = 0, line = '' }) {
   const stream = new ArrayStream();
   const outputStream = new ArrayStream();
 
@@ -121,4 +121,4 @@ const codeAlignmentTests = [
   }
 ];
 
-codeAlignmentTests.forEach(testCodeAligment);
+codeAlignmentTests.forEach(testCodeAlignment);

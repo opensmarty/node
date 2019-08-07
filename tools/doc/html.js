@@ -23,6 +23,7 @@
 
 const common = require('./common.js');
 const fs = require('fs');
+const getVersions = require('./versions.js');
 const unified = require('unified');
 const find = require('unist-util-find');
 const visit = require('unist-util-visit');
@@ -62,7 +63,7 @@ const gtocHTML = unified()
 const templatePath = path.join(docPath, 'template.html');
 const template = fs.readFileSync(templatePath, 'utf8');
 
-function toHTML({ input, content, filename, nodeVersion, analytics }, cb) {
+async function toHTML({ input, content, filename, nodeVersion }, cb) {
   filename = path.basename(filename, '.md');
 
   const id = filename.replace(/\W+/g, '-');
@@ -77,34 +78,10 @@ function toHTML({ input, content, filename, nodeVersion, analytics }, cb) {
                      .replace('__EDIT_ON_GITHUB__', editOnGitHub(filename))
                      .replace('__CONTENT__', content.toString());
 
-  if (analytics) {
-    HTML = HTML.replace('<!-- __TRACKING__ -->', `
-    <script type="text/javascript">
-      // In all the browsers we'll get '1' or 'yes' (FF 32 or above) as a string
-      // value when enabling 'DO NOT TRACK'.
-      // For more:
-      // https://developer.mozilla.org/en-US/docs/Web/API/navigator/doNotTrack
-      function isDoNotTrack() {
-        var isDoNotTrackEnabled = navigator.doNotTrack || window.doNotTrack ||
-               navigator.msDoNotTrack;
-        return isDoNotTrackEnabled === '1' || isDoNotTrackEnabled === 'yes';
-      }
-      if (!isDoNotTrack()) {
-        (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;
-        i[r]=i[r]||function(){(i[r].q=i[r].q||[]).push(arguments)},
-        i[r].l=1*new Date();a=s.createElement(o),m=s.getElementsByTagName(o)[0];
-        a.async=1;a.src=g;m.parentNode.insertBefore(a,m)})(window,document,
-        'script','//www.google-analytics.com/analytics.js','ga');
-        ga('create', '${analytics}', 'auto');
-        ga('send', 'pageview');
-      }
-    </script>`);
-  }
-
   const docCreated = input.match(
     /<!--\s*introduced_in\s*=\s*v([0-9]+)\.([0-9]+)\.[0-9]+\s*-->/);
   if (docCreated) {
-    HTML = HTML.replace('__ALTDOCS__', altDocs(filename, docCreated));
+    HTML = HTML.replace('__ALTDOCS__', await altDocs(filename, docCreated));
   } else {
     console.error(`Failed to add alternative version links to ${filename}`);
     HTML = HTML.replace('__ALTDOCS__', '');
@@ -144,6 +121,8 @@ function preprocessText() {
 
 // Syscalls which appear in the docs, but which only exist in BSD / macOS.
 const BSD_ONLY_SYSCALLS = new Set(['lchmod']);
+const LINUX_DIE_ONLY_SYSCALLS = new Set(['uname']);
+const HAXX_ONLY_SYSCALLS = new Set(['curl']);
 const MAN_PAGE = /(^|\s)([a-z.]+)\((\d)([a-z]?)\)/gm;
 
 // Handle references to man pages, eg "open(2)" or "lchmod(2)".
@@ -160,6 +139,14 @@ function linkManPages(text) {
         return `${beginning}<a href="https://www.freebsd.org/cgi/man.cgi` +
           `?query=${name}&sektion=${number}">${displayAs}</a>`;
       }
+      if (LINUX_DIE_ONLY_SYSCALLS.has(name)) {
+        return `${beginning}<a href="https://linux.die.net/man/` +
+                `${number}/${name}">${displayAs}</a>`;
+      }
+      if (HAXX_ONLY_SYSCALLS.has(name)) {
+        return `${beginning}<a href="https://${name}.haxx.se/docs/manpage.html">${displayAs}</a>`;
+      }
+
       return `${beginning}<a href="http://man7.org/linux/man-pages/man${number}` +
         `/${name}.${number}${optionalCharacter}.html">${displayAs}</a>`;
     });
@@ -185,7 +172,7 @@ function linkJsTypeDocs(text) {
 
 // Preprocess headers, stability blockquotes, and YAML blocks.
 function preprocessElements({ filename }) {
-  return (tree, file) => {
+  return (tree) => {
     const STABILITY_RE = /(.*:)\s*(\d)([\s\S]*)/;
     let headingIndex = -1;
     let heading = null;
@@ -194,26 +181,6 @@ function preprocessElements({ filename }) {
       if (node.type === 'heading') {
         headingIndex = index;
         heading = node;
-
-        // Ensure optional API parameters are not treated as links by
-        // collapsing all of heading into a single text node.
-        if (heading.children.length > 1) {
-          const position = {
-            start: heading.children[0].position.start,
-            end: heading.position.end
-          };
-
-          heading.children = [{
-            type: 'text',
-            value: file.contents.slice(
-              position.start.offset, position.end.offset)
-              .replace('&lt;', '<')
-              .replace('&gt;', '>')
-              .replace(/\\(.{1})/g, '$1'),
-            position
-          }];
-        }
-
       } else if (node.type === 'html' && common.isYAMLBlock(node.value)) {
         node.value = parseYAML(node.value);
 
@@ -240,12 +207,12 @@ function preprocessElements({ filename }) {
           const noLinking = filename.includes('documentation') &&
             heading !== null && heading.children[0].value === 'Stability Index';
 
-          // collapse blockquote and paragraph into a single node
+          // Collapse blockquote and paragraph into a single node
           node.type = 'paragraph';
           node.children.shift();
           node.children.unshift(...paragraph.children);
 
-          // insert div with prefix and number
+          // Insert div with prefix and number
           node.children.unshift({
             type: 'html',
             value: `<div class="api_stability api_stability_${number}">` +
@@ -255,7 +222,7 @@ function preprocessElements({ filename }) {
                 .replace(/\n/g, ' ')
           });
 
-          // remove prefix and number from text
+          // Remove prefix and number from text
           text.value = explication;
 
           // close div
@@ -424,20 +391,10 @@ function getId(text, idCounters) {
   return text;
 }
 
-function altDocs(filename, docCreated) {
+async function altDocs(filename, docCreated) {
   const [, docCreatedMajor, docCreatedMinor] = docCreated.map(Number);
   const host = 'https://nodejs.org';
-  const versions = [
-    { num: '10.x' },
-    { num: '9.x' },
-    { num: '8.x', lts: true },
-    { num: '7.x' },
-    { num: '6.x', lts: true },
-    { num: '5.x' },
-    { num: '4.x' },
-    { num: '0.12.x' },
-    { num: '0.10.x' }
-  ];
+  const versions = await getVersions.versions();
 
   const getHref = (versionNum) =>
     `${host}/docs/latest-v${versionNum}/api/${filename}.html`;
@@ -450,6 +407,7 @@ function altDocs(filename, docCreated) {
     const [versionMajor, versionMinor] = version.num.split('.').map(Number);
     if (docCreatedMajor > versionMajor) return false;
     if (docCreatedMajor < versionMajor) return true;
+    if (Number.isNaN(versionMinor)) return true;
     return docCreatedMinor <= versionMinor;
   }
 
